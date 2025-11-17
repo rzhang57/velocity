@@ -1,4 +1,6 @@
 import { cn } from "@/lib/utils";
+import { useEffect } from "react";
+import { getAssetPath } from "@/lib/assetPath";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -10,7 +12,7 @@ import type { ZoomDepth, CropRegion } from "./types";
 import { CropControl } from "./CropControl";
 
 const WALLPAPER_COUNT = 12;
-const WALLPAPER_PATHS = Array.from({ length: WALLPAPER_COUNT }, (_, i) => `/wallpapers/wallpaper${i + 1}.jpg`);
+const WALLPAPER_RELATIVE = Array.from({ length: WALLPAPER_COUNT }, (_, i) => `wallpapers/wallpaper${i + 1}.jpg`);
 const GRADIENTS = [
   "linear-gradient( 111.6deg,  rgba(114,167,232,1) 9.4%, rgba(253,129,82,1) 43.9%, rgba(253,129,82,1) 54.8%, rgba(249,202,86,1) 86.3% )",
   "linear-gradient(120deg, #d4fc79 0%, #96e6a1 100%)",
@@ -54,6 +56,20 @@ const ZOOM_DEPTH_OPTIONS: Array<{ depth: ZoomDepth; label: string }> = [
 ];
 
 export function SettingsPanel({ selected, onWallpaperChange, selectedZoomDepth, onZoomDepthChange, selectedZoomId, onZoomDelete, showShadow, onShadowChange, showBlur, onBlurChange, cropRegion, onCropChange, videoElement, onExport }: SettingsPanelProps) {
+  const [wallpaperPaths, setWallpaperPaths] = useState<string[]>([]);
+
+  useEffect(() => {
+    let mounted = true
+    ;(async () => {
+      try {
+        const resolved = await Promise.all(WALLPAPER_RELATIVE.map(p => getAssetPath(p)))
+        if (mounted) setWallpaperPaths(resolved)
+      } catch (err) {
+        if (mounted) setWallpaperPaths(WALLPAPER_RELATIVE.map(p => `/${p}`))
+      }
+    })()
+    return () => { mounted = false }
+  }, [])
   const [hsva, setHsva] = useState({ h: 0, s: 0, v: 68, a: 1 });
   const [gradient, setGradient] = useState<string>(GRADIENTS[0]);
   const [showCropDropdown, setShowCropDropdown] = useState(false);
@@ -191,21 +207,38 @@ export function SettingsPanel({ selected, onWallpaperChange, selectedZoomDepth, 
         
         <TabsContent value="image">
           <div className="grid grid-cols-6 gap-3">
-            {WALLPAPER_PATHS.map((path, idx) => (
-              <div
-                key={path}
-                className={cn(
-                  "aspect-square rounded-lg border-2 overflow-hidden cursor-pointer transition-all w-16 h-16",
-                  selected === path
-                    ? "border-[#34B27B] ring-1 ring-[#34B27B] scale-105"
-                    : "border-[#23232a] hover:border-[#34B27B] hover:scale-105"
-                )}
-                style={{ backgroundImage: `url(${path})`, backgroundSize: "cover", backgroundPosition: "center" }}
-                aria-label={`Wallpaper ${idx + 1}`}
-                onClick={() => onWallpaperChange(path)}
-                role="button"
-              />
-            ))}
+            {(wallpaperPaths.length > 0 ? wallpaperPaths : WALLPAPER_RELATIVE.map(p => `/${p}`)).map((path, idx) => {
+              const isSelected = (() => {
+                if (!selected) return false;
+                // exact match
+                if (selected === path) return true;
+                // file:// vs absolute path mismatch: compare by filename suffix
+                try {
+                  const clean = (s: string) => s.replace(/^file:\/\//, '').replace(/^\//, '')
+                  if (clean(selected).endsWith(clean(path))) return true;
+                  if (clean(path).endsWith(clean(selected))) return true;
+                } catch {
+                  // ignore
+                }
+                return false;
+              })();
+
+              return (
+                <div
+                  key={path}
+                  className={cn(
+                    "aspect-square rounded-lg border-2 overflow-hidden cursor-pointer transition-all w-16 h-16",
+                    isSelected
+                      ? "border-[#34B27B] ring-1 ring-[#34B27B] scale-105"
+                      : "border-[#23232a] hover:border-[#34B27B] hover:scale-105"
+                  )}
+                  style={{ backgroundImage: `url(${path})`, backgroundSize: "cover", backgroundPosition: "center" }}
+                  aria-label={`Wallpaper ${idx + 1}`}
+                  onClick={() => onWallpaperChange(path)}
+                  role="button"
+                />
+              )
+            })}
           </div>
         </TabsContent>
         

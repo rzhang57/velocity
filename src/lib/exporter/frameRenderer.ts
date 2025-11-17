@@ -124,14 +124,21 @@ export class FrameRenderer {
 
     try {
       // Render background based on type
-      if (wallpaper.startsWith('/') || wallpaper.startsWith('http')) {
+      if (wallpaper.startsWith('file://') || wallpaper.startsWith('data:') || wallpaper.startsWith('/') || wallpaper.startsWith('http')) {
         // Image background
         const img = new Image();
         // Don't set crossOrigin for same-origin images to avoid CORS taint
         // Only set it for cross-origin URLs
-        const imageUrl = wallpaper.startsWith('http') ? wallpaper : window.location.origin + wallpaper;
-        if (wallpaper.startsWith('http') && !imageUrl.startsWith(window.location.origin)) {
-          img.crossOrigin = 'anonymous';
+        let imageUrl: string;
+        if (wallpaper.startsWith('http')) {
+          imageUrl = wallpaper;
+          if (!imageUrl.startsWith(window.location.origin)) {
+            img.crossOrigin = 'anonymous';
+          }
+        } else if (wallpaper.startsWith('file://') || wallpaper.startsWith('data:')) {
+          imageUrl = wallpaper;
+        } else {
+          imageUrl = window.location.origin + wallpaper;
         }
         
         await new Promise<void>((resolve, reject) => {

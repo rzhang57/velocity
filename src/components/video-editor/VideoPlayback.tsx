@@ -1,5 +1,6 @@
 import type React from "react";
 import { useEffect, useRef, useImperativeHandle, forwardRef, useState, useMemo, useCallback } from "react";
+import { getAssetPath } from "@/lib/assetPath";
 import * as PIXI from 'pixi.js';
 import { ZOOM_DEPTH_SCALES, type ZoomRegion, type ZoomFocus, type ZoomDepth } from "./types";
 import { DEFAULT_FOCUS, SMOOTHING_FACTOR, MIN_DELTA } from "./videoPlayback/constants";
@@ -677,10 +678,51 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(({
     setVideoReady(true);
   };
 
-  const isImageUrl = wallpaper?.startsWith('/wallpapers/') || wallpaper?.startsWith('http');
-  const backgroundStyle = isImageUrl 
-    ? { backgroundImage: `url(${wallpaper || '/wallpapers/wallpaper1.jpg'})` }
-    : { background: wallpaper || '/wallpapers/wallpaper1.jpg' };
+  const [resolvedWallpaper, setResolvedWallpaper] = useState<string | null>(null);
+
+  useEffect(() => {
+    let mounted = true
+    ;(async () => {
+      try {
+        if (!wallpaper) {
+          const def = await getAssetPath('wallpapers/wallpaper1.jpg')
+          if (mounted) setResolvedWallpaper(def)
+          return
+        }
+
+        // If it's a solid color or CSS gradient, use it directly
+        if (wallpaper.startsWith('#') || wallpaper.startsWith('linear-gradient') || wallpaper.startsWith('radial-gradient')) {
+          if (mounted) setResolvedWallpaper(wallpaper)
+          return
+        }
+
+        // If it's an absolute web/http or file path, use as-is
+        if (wallpaper.startsWith('http') || wallpaper.startsWith('file://') || wallpaper.startsWith('/')) {
+          // If it's an absolute server path (starts with '/'), resolve via getAssetPath as well
+          if (wallpaper.startsWith('/')) {
+            const rel = wallpaper.replace(/^\//, '')
+            const p = await getAssetPath(rel)
+            if (mounted) setResolvedWallpaper(p)
+            return
+          }
+          if (mounted) setResolvedWallpaper(wallpaper)
+          return
+        }
+
+        // Otherwise assume it's a relative path like 'wallpapers/wallpaper1.jpg'
+        const p = await getAssetPath(wallpaper.replace(/^\//, ''))
+        if (mounted) setResolvedWallpaper(p)
+      } catch (err) {
+        if (mounted) setResolvedWallpaper(wallpaper || '/wallpapers/wallpaper1.jpg')
+      }
+    })()
+    return () => { mounted = false }
+  }, [wallpaper])
+
+  const isImageUrl = Boolean(resolvedWallpaper && (resolvedWallpaper.startsWith('file://') || resolvedWallpaper.startsWith('http') || resolvedWallpaper.startsWith('/')))
+  const backgroundStyle = isImageUrl
+    ? { backgroundImage: `url(${resolvedWallpaper || ''})` }
+    : { background: resolvedWallpaper || '' };
 
   return (
     <div className="relative aspect-video rounded-sm overflow-hidden" style={{ width: '100%' }}>

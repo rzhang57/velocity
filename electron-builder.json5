@@ -11,6 +11,12 @@
     "dist",
     "dist-electron"
   ],
+  "extraResources": [
+    {
+      "from": "public/wallpapers",
+      "to": "assets/wallpapers"
+    }
+  ],
   "mac": {
     "target": [
       "dmg"

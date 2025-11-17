@@ -145,6 +145,19 @@ export function registerIpcHandlers(
     }
   })
 
+  // Return base path for assets so renderer can resolve file:// paths in production
+  ipcMain.handle('get-asset-base-path', () => {
+    try {
+      if (app.isPackaged) {
+        return path.join(process.resourcesPath, 'assets')
+      }
+      return path.join(app.getAppPath(), 'public', 'assets')
+    } catch (err) {
+      console.error('Failed to resolve asset base path:', err)
+      return null
+    }
+  })
+
   ipcMain.handle('save-exported-video', async (_, videoData: ArrayBuffer, fileName: string) => {
     try {
       const downloadsPath = app.getPath('downloads')

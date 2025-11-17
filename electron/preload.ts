@@ -1,6 +1,10 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
 contextBridge.exposeInMainWorld('electronAPI', {
+  getAssetBasePath: async () => {
+    // ask main process for the correct base path (production vs dev)
+    return await ipcRenderer.invoke('get-asset-base-path')
+  },
   getSources: async (opts: Electron.SourcesOptions) => {
     return await ipcRenderer.invoke('get-sources', opts)
   },
