@@ -10,10 +10,14 @@ const VITE_DEV_SERVER_URL = process.env['VITE_DEV_SERVER_URL']
 const RENDERER_DIST = path.join(APP_ROOT, 'dist')
 
 let hudOverlayWindow: BrowserWindow | null = null;
+let cameraPreviewWindow: BrowserWindow | null = null;
 
 ipcMain.on('hud-overlay-hide', () => {
   if (hudOverlayWindow && !hudOverlayWindow.isDestroyed()) {
     hudOverlayWindow.minimize();
+  }
+  if (cameraPreviewWindow && !cameraPreviewWindow.isDestroyed()) {
+    cameraPreviewWindow.minimize();
   }
 });
 
@@ -32,12 +36,13 @@ export function createHudOverlayWindow(): BrowserWindow {
     width: windowWidth,
     height: windowHeight,
     minWidth: 500,
-    maxWidth: 500,
+    maxWidth: 1100,
     minHeight: 100,
     maxHeight: 100,
     x: x,
     y: y,
     frame: false,
+    thickFrame: false,
     transparent: true,
     resizable: false,
     alwaysOnTop: true,
@@ -50,6 +55,7 @@ export function createHudOverlayWindow(): BrowserWindow {
       backgroundThrottling: false,
     },
   })
+  win.setContentProtection(true);
 
 
   win.webContents.on('did-finish-load', () => {
@@ -61,6 +67,12 @@ export function createHudOverlayWindow(): BrowserWindow {
   win.on('closed', () => {
     if (hudOverlayWindow === win) {
       hudOverlayWindow = null;
+    }
+  });
+
+  win.on('minimize', () => {
+    if (cameraPreviewWindow && !cameraPreviewWindow.isDestroyed()) {
+      cameraPreviewWindow.minimize();
     }
   });
 
@@ -132,6 +144,7 @@ export function createSourceSelectorWindow(): BrowserWindow {
     x: Math.round((width - 620) / 2),
     y: Math.round((height - 420) / 2),
     frame: false,
+    thickFrame: false,
     resizable: false,
     alwaysOnTop: true,
     transparent: true,
@@ -142,6 +155,7 @@ export function createSourceSelectorWindow(): BrowserWindow {
       contextIsolation: true,
     },
   })
+  win.setContentProtection(true);
 
   if (VITE_DEV_SERVER_URL) {
     win.loadURL(VITE_DEV_SERVER_URL + '?windowType=source-selector')
@@ -152,4 +166,78 @@ export function createSourceSelectorWindow(): BrowserWindow {
   }
 
   return win
+}
+
+export function createCameraPreviewWindow(deviceId?: string): BrowserWindow {
+  if (cameraPreviewWindow && !cameraPreviewWindow.isDestroyed()) {
+    cameraPreviewWindow.focus();
+    return cameraPreviewWindow;
+  }
+
+  const primaryDisplay = screen.getPrimaryDisplay();
+  const { workArea } = primaryDisplay;
+
+  const windowWidth = 320;
+  const windowHeight = 200;
+  const x = Math.floor(workArea.x + workArea.width - windowWidth - 24);
+  const y = Math.floor(workArea.y + workArea.height - windowHeight - 140);
+
+  const win = new BrowserWindow({
+    width: windowWidth,
+    height: windowHeight,
+    minWidth: 220,
+    minHeight: 140,
+    x,
+    y,
+    frame: false,
+    thickFrame: false,
+    transparent: true,
+    resizable: true,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    hasShadow: false,
+    backgroundColor: '#00000000',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.mjs'),
+      nodeIntegration: false,
+      contextIsolation: true,
+      backgroundThrottling: false,
+    },
+  });
+
+  win.setContentProtection(true);
+  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  win.setAspectRatio(16 / 9);
+
+  const query = { windowType: 'camera-preview', ...(deviceId ? { deviceId } : {}) };
+  if (VITE_DEV_SERVER_URL) {
+    const url = new URL(VITE_DEV_SERVER_URL);
+    url.searchParams.set('windowType', 'camera-preview');
+    if (deviceId) {
+      url.searchParams.set('deviceId', deviceId);
+    }
+    win.loadURL(url.toString());
+  } else {
+    win.loadFile(path.join(RENDERER_DIST, 'index.html'), { query });
+  }
+
+  cameraPreviewWindow = win;
+  win.on('closed', () => {
+    if (cameraPreviewWindow === win) {
+      cameraPreviewWindow = null;
+    }
+  });
+
+  return win;
+}
+
+export function closeCameraPreviewWindow() {
+  if (cameraPreviewWindow && !cameraPreviewWindow.isDestroyed()) {
+    cameraPreviewWindow.close();
+  }
+  cameraPreviewWindow = null;
+}
+
+export function getCameraPreviewWindow(): BrowserWindow | null {
+  return cameraPreviewWindow && !cameraPreviewWindow.isDestroyed() ? cameraPreviewWindow : null;
 }

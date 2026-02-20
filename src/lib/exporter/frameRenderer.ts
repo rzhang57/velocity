@@ -1,5 +1,5 @@
 import { Application, Container, Sprite, Graphics, BlurFilter, Texture } from 'pixi.js';
-import type { ZoomRegion, CropRegion, AnnotationRegion } from '@/components/video-editor/types';
+import type { ZoomRegion, CropRegion, AnnotationRegion, CameraHiddenRegion } from '@/components/video-editor/types';
 import { ZOOM_DEPTH_SCALES } from '@/components/video-editor/types';
 import { findDominantRegion } from '@/components/video-editor/videoPlayback/zoomRegionUtils';
 import { applyZoomTransform } from '@/components/video-editor/videoPlayback/zoomTransform';
@@ -24,6 +24,9 @@ interface FrameRenderConfig {
   annotationRegions?: AnnotationRegion[];
   previewWidth?: number;
   previewHeight?: number;
+  cameraVideoUrl?: string;
+  cameraStartOffsetMs?: number;
+  cameraHiddenRegions?: CameraHiddenRegion[];
 }
 
 interface AnimationState {
@@ -50,6 +53,9 @@ export class FrameRenderer {
   private animationState: AnimationState;
   private layoutCache: any = null;
   private currentVideoTime = 0;
+  private cameraElement: HTMLVideoElement | null = null;
+  private cameraReady = false;
+  private shouldRenderCamera = false;
 
   constructor(config: FrameRenderConfig) {
     this.config = config;
@@ -97,6 +103,7 @@ export class FrameRenderer {
 
     // Setup background (render separately, not in PixiJS)
     await this.setupBackground();
+    await this.setupCamera();
 
     // Setup blur filter for video container
     this.blurFilter = new BlurFilter();
@@ -131,6 +138,80 @@ export class FrameRenderer {
     this.maskGraphics = new Graphics();
     this.videoContainer.addChild(this.maskGraphics);
     this.videoContainer.mask = this.maskGraphics;
+  }
+
+  private async setupCamera(): Promise<void> {
+    if (!this.config.cameraVideoUrl) {
+      this.cameraElement = null;
+      this.cameraReady = false;
+      return;
+    }
+
+    const video = document.createElement('video');
+    video.src = this.config.cameraVideoUrl;
+    video.preload = 'metadata';
+    video.muted = true;
+    video.playsInline = true;
+
+    await new Promise<void>((resolve, reject) => {
+      const onLoaded = () => {
+        video.removeEventListener('loadedmetadata', onLoaded);
+        video.removeEventListener('error', onError);
+        resolve();
+      };
+      const onError = () => {
+        video.removeEventListener('loadedmetadata', onLoaded);
+        video.removeEventListener('error', onError);
+        reject(new Error('Failed to load camera video'));
+      };
+      video.addEventListener('loadedmetadata', onLoaded);
+      video.addEventListener('error', onError);
+    });
+
+    this.cameraElement = video;
+    this.cameraReady = true;
+  }
+
+  private async prepareCameraFrame(sourceTimeMs: number): Promise<boolean> {
+    if (!this.cameraElement || !this.cameraReady) {
+      return false;
+    }
+
+    const cameraStartOffsetMs = this.config.cameraStartOffsetMs ?? 0;
+    const cameraTimeMs = sourceTimeMs - cameraStartOffsetMs;
+    if (cameraTimeMs < 0) {
+      return false;
+    }
+
+    const hideRegions = this.config.cameraHiddenRegions ?? [];
+    const hidden = hideRegions.some(
+      (region) => cameraTimeMs >= region.startMs && cameraTimeMs < region.endMs
+    );
+    if (hidden) {
+      return false;
+    }
+
+    const cameraTimeSec = cameraTimeMs / 1000;
+    if (cameraTimeSec > this.cameraElement.duration) {
+      return false;
+    }
+
+    await new Promise<void>((resolve) => {
+      const onSeeked = () => {
+        this.cameraElement?.removeEventListener('seeked', onSeeked);
+        resolve();
+      };
+
+      if (Math.abs(this.cameraElement!.currentTime - cameraTimeSec) < 0.04) {
+        resolve();
+        return;
+      }
+
+      this.cameraElement!.addEventListener('seeked', onSeeked, { once: true });
+      this.cameraElement!.currentTime = Math.max(0, cameraTimeSec);
+    });
+
+    return true;
   }
 
   private async setupBackground(): Promise<void> {
@@ -256,6 +337,7 @@ export class FrameRenderer {
     }
 
     this.currentVideoTime = timestamp / 1000000;
+    this.shouldRenderCamera = await this.prepareCameraFrame(this.currentVideoTime * 1000);
 
     // Create or update video sprite from VideoFrame
     if (!this.videoSprite) {
@@ -501,6 +583,47 @@ export class FrameRenderer {
     } else {
       ctx.drawImage(videoCanvas, 0, 0, w, h);
     }
+
+    if (this.shouldRenderCamera && this.cameraElement) {
+      const bubbleWidth = Math.round(w * 0.18);
+      const bubbleHeight = Math.round(bubbleWidth * 9 / 16);
+      const margin = Math.round(w * 0.03);
+      const x = w - bubbleWidth - margin;
+      const y = margin;
+      const radius = Math.max(8, Math.round(Math.min(bubbleWidth, bubbleHeight) * 0.08));
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(x + radius, y);
+      ctx.lineTo(x + bubbleWidth - radius, y);
+      ctx.quadraticCurveTo(x + bubbleWidth, y, x + bubbleWidth, y + radius);
+      ctx.lineTo(x + bubbleWidth, y + bubbleHeight - radius);
+      ctx.quadraticCurveTo(x + bubbleWidth, y + bubbleHeight, x + bubbleWidth - radius, y + bubbleHeight);
+      ctx.lineTo(x + radius, y + bubbleHeight);
+      ctx.quadraticCurveTo(x, y + bubbleHeight, x, y + bubbleHeight - radius);
+      ctx.lineTo(x, y + radius);
+      ctx.quadraticCurveTo(x, y, x + radius, y);
+      ctx.closePath();
+      ctx.clip();
+      ctx.drawImage(this.cameraElement, x, y, bubbleWidth, bubbleHeight);
+      ctx.restore();
+
+      ctx.save();
+      ctx.strokeStyle = 'rgba(255,255,255,0.28)';
+      ctx.lineWidth = Math.max(1, Math.round(w * 0.0012));
+      ctx.beginPath();
+      ctx.moveTo(x + radius, y);
+      ctx.lineTo(x + bubbleWidth - radius, y);
+      ctx.quadraticCurveTo(x + bubbleWidth, y, x + bubbleWidth, y + radius);
+      ctx.lineTo(x + bubbleWidth, y + bubbleHeight - radius);
+      ctx.quadraticCurveTo(x + bubbleWidth, y + bubbleHeight, x + bubbleWidth - radius, y + bubbleHeight);
+      ctx.lineTo(x + radius, y + bubbleHeight);
+      ctx.quadraticCurveTo(x, y + bubbleHeight, x, y + bubbleHeight - radius);
+      ctx.lineTo(x, y + radius);
+      ctx.quadraticCurveTo(x, y, x + radius, y);
+      ctx.stroke();
+      ctx.restore();
+    }
   }
 
   getCanvas(): HTMLCanvasElement {
@@ -529,5 +652,8 @@ export class FrameRenderer {
     this.shadowCtx = null;
     this.compositeCanvas = null;
     this.compositeCtx = null;
+    this.cameraElement = null;
+    this.cameraReady = false;
+    this.shouldRenderCamera = false;
   }
 }

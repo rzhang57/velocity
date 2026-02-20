@@ -19,6 +19,15 @@ electron.contextBridge.exposeInMainWorld("electronAPI", {
   openSourceSelector: () => {
     return electron.ipcRenderer.invoke("open-source-selector");
   },
+  openCameraPreviewWindow: (deviceId) => {
+    return electron.ipcRenderer.invoke("open-camera-preview-window", deviceId);
+  },
+  closeCameraPreviewWindow: () => {
+    return electron.ipcRenderer.invoke("close-camera-preview-window");
+  },
+  setHudOverlayWidth: (width) => {
+    return electron.ipcRenderer.invoke("set-hud-overlay-width", width);
+  },
   selectSource: (source) => {
     return electron.ipcRenderer.invoke("select-source", source);
   },
@@ -27,6 +36,9 @@ electron.contextBridge.exposeInMainWorld("electronAPI", {
   },
   storeRecordedVideo: (videoData, fileName) => {
     return electron.ipcRenderer.invoke("store-recorded-video", videoData, fileName);
+  },
+  storeRecordingSession: (payload) => {
+    return electron.ipcRenderer.invoke("store-recording-session", payload);
   },
   getRecordedVideoPath: () => {
     return electron.ipcRenderer.invoke("get-recorded-video-path");
@@ -53,6 +65,12 @@ electron.contextBridge.exposeInMainWorld("electronAPI", {
   },
   getCurrentVideoPath: () => {
     return electron.ipcRenderer.invoke("get-current-video-path");
+  },
+  setCurrentRecordingSession: (session) => {
+    return electron.ipcRenderer.invoke("set-current-recording-session", session);
+  },
+  getCurrentRecordingSession: () => {
+    return electron.ipcRenderer.invoke("get-current-recording-session");
   },
   clearCurrentVideoPath: () => {
     return electron.ipcRenderer.invoke("clear-current-video-path");

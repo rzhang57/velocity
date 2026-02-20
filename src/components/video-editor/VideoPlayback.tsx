@@ -2,7 +2,7 @@ import type React from "react";
 import { useEffect, useRef, useImperativeHandle, forwardRef, useState, useMemo, useCallback } from "react";
 import { getAssetPath } from "@/lib/assetPath";
 import { Application, Container, Sprite, Graphics, BlurFilter, Texture, VideoSource } from 'pixi.js';
-import { ZOOM_DEPTH_SCALES, type ZoomRegion, type ZoomFocus, type ZoomDepth, type TrimRegion, type AnnotationRegion } from "./types";
+import { ZOOM_DEPTH_SCALES, type ZoomRegion, type ZoomFocus, type ZoomDepth, type TrimRegion, type AnnotationRegion, type CameraHiddenRegion } from "./types";
 import { DEFAULT_FOCUS, SMOOTHING_FACTOR, MIN_DELTA } from "./videoPlayback/constants";
 import { clamp01 } from "./videoPlayback/mathUtils";
 import { findDominantRegion } from "./videoPlayback/zoomRegionUtils";
@@ -16,6 +16,9 @@ import { AnnotationOverlay } from "./AnnotationOverlay";
 
 interface VideoPlaybackProps {
   videoPath: string;
+  cameraVideoPath?: string;
+  cameraStartOffsetMs?: number;
+  cameraHiddenRegions?: CameraHiddenRegion[];
   onDurationChange: (duration: number) => void;
   onTimeUpdate: (time: number) => void;
   currentTime: number;
@@ -55,6 +58,9 @@ export interface VideoPlaybackRef {
 
 const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(({
   videoPath,
+  cameraVideoPath,
+  cameraStartOffsetMs = 0,
+  cameraHiddenRegions = [],
   onDurationChange,
   onTimeUpdate,
   currentTime,
@@ -82,6 +88,7 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(({
   onAnnotationSizeChange,
 }, ref) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const cameraVideoRef = useRef<HTMLVideoElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const appRef = useRef<Application | null>(null);
   const videoSpriteRef = useRef<Sprite | null>(null);
@@ -90,6 +97,7 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(({
   const timeUpdateAnimationRef = useRef<number | null>(null);
   const [pixiReady, setPixiReady] = useState(false);
   const [videoReady, setVideoReady] = useState(false);
+  const [cameraDuration, setCameraDuration] = useState(0);
   const overlayRef = useRef<HTMLDivElement | null>(null);
   const focusIndicatorRef = useRef<HTMLDivElement | null>(null);
   const currentTimeRef = useRef(0);
@@ -501,6 +509,30 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(({
     }
   }, [videoPath]);
 
+  useEffect(() => {
+    const cameraVideo = cameraVideoRef.current;
+    if (!cameraVideoPath || !cameraVideo) return;
+
+    const offsetSeconds = Math.max(0, cameraStartOffsetMs / 1000);
+    const cameraTime = currentTime - offsetSeconds;
+
+    if (cameraTime < 0) {
+      if (!cameraVideo.paused) cameraVideo.pause();
+      return;
+    }
+
+    if (Math.abs(cameraVideo.currentTime - cameraTime) > 0.2) {
+      cameraVideo.currentTime = Math.max(0, cameraTime);
+    }
+
+    if (isPlaying && cameraVideo.paused) {
+      cameraVideo.play().catch(() => {
+      });
+    } else if (!isPlaying && !cameraVideo.paused) {
+      cameraVideo.pause();
+    }
+  }, [cameraVideoPath, cameraStartOffsetMs, currentTime, isPlaying]);
+
 
 
   useEffect(() => {
@@ -788,6 +820,17 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(({
     ? { backgroundImage: `url(${resolvedWallpaper || ''})` }
     : { background: resolvedWallpaper || '' };
 
+  const currentTimeMs = Math.round(currentTime * 1000);
+  const cameraTimeMs = currentTimeMs - Math.max(0, cameraStartOffsetMs);
+  const isCameraHidden = cameraHiddenRegions.some(
+    (region) => cameraTimeMs >= region.startMs && cameraTimeMs < region.endMs
+  );
+  const canShowCameraBubble =
+    Boolean(cameraVideoPath) &&
+    cameraTimeMs >= 0 &&
+    cameraTimeMs <= cameraDuration * 1000 &&
+    !isCameraHidden;
+
   return (
     <div className="relative rounded-sm overflow-hidden" style={{ width: '100%', aspectRatio: formatAspectRatioForCSS(aspectRatio) }}>
       {/* Background layer - always render as DOM element with blur */}
@@ -867,6 +910,29 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(({
               />
             ));
           })()}
+        </div>
+      )}
+      {cameraVideoPath && (
+        <div
+          className="absolute z-40 overflow-hidden border border-white/20 bg-black/70 shadow-2xl"
+          style={{
+            right: '3%',
+            top: '3%',
+            width: '18%',
+            aspectRatio: '16 / 9',
+            borderRadius: 14,
+            display: canShowCameraBubble ? 'block' : 'none',
+          }}
+        >
+          <video
+            ref={cameraVideoRef}
+            src={cameraVideoPath}
+            className="w-full h-full object-cover"
+            muted
+            playsInline
+            preload="metadata"
+            onLoadedMetadata={(e) => setCameraDuration(e.currentTarget.duration || 0)}
+          />
         </div>
       )}
       <video

@@ -2,7 +2,7 @@ import { app, BrowserWindow, Tray, Menu, nativeImage } from 'electron'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import fs from 'node:fs/promises'
-import { createHudOverlayWindow, createEditorWindow, createSourceSelectorWindow } from './windows'
+import { createHudOverlayWindow, createEditorWindow, createSourceSelectorWindow, createCameraPreviewWindow, closeCameraPreviewWindow, getCameraPreviewWindow } from './windows'
 import { registerIpcHandlers } from './ipc/handlers'
 
 
@@ -55,6 +55,19 @@ function createWindow() {
 
 function createTray() {
   tray = new Tray(defaultTrayIcon);
+  if (process.platform === 'win32') {
+    tray.on('double-click', () => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        if (mainWindow.isMinimized()) {
+          mainWindow.restore();
+        }
+        mainWindow.show();
+        mainWindow.focus();
+      } else {
+        createWindow();
+      }
+    });
+  }
 }
 
 function getTrayIcon(filename: string) {
@@ -109,6 +122,7 @@ function createEditorWindowWrapper() {
     mainWindow.close()
     mainWindow = null
   }
+  closeCameraPreviewWindow()
   mainWindow = createEditorWindow()
 }
 
@@ -151,8 +165,11 @@ app.whenReady().then(async () => {
   registerIpcHandlers(
     createEditorWindowWrapper,
     createSourceSelectorWindowWrapper,
+    createCameraPreviewWindow,
+    closeCameraPreviewWindow,
     () => mainWindow,
     () => sourceSelectorWindow,
+    () => getCameraPreviewWindow(),
     (recording: boolean, sourceName: string) => {
       selectedSourceName = sourceName
       if (!tray) createTray();

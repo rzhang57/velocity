@@ -1,5 +1,8 @@
 # Repository Guidelines
 
+## Project overview
+Openscreen is a screen recording software built for beautiful software product demo videos
+
 ## Project Structure & Module Organization
 OpenScreen is a Vite + React + TypeScript renderer with an Electron main process.
 - `src/`: renderer app code.
@@ -28,20 +31,10 @@ Use npm scripts from `package.json`:
   - Components/files: `PascalCase` (for example `VideoEditor.tsx`).
   - Hooks: `useSomething` (for example `useScreenRecorder.ts`).
   - Utilities/modules: `camelCase` file names where appropriate.
+- No unnecessary comments
 
 ## Testing Guidelines
 - Framework: Vitest (`vitest.config.ts`) with tests located near code (for example `src/lib/exporter/gifExporter.test.ts`).
 - Name test files `*.test.ts` or `*.test.tsx`.
-- Add tests for bug fixes and non-trivial logic changes, especially in exporter/math/timeline behavior.
-- Run `npm test` and `npm run lint` before opening a PR.
-
-## Commit & Pull Request Guidelines
-Recent history includes both concise subjects and Conventional Commit prefixes (`fix:`, `feat:`, `docs:`, `chore:`). Prefer:
-- `type: short imperative summary` (for example `fix: prevent stale closure in timeline playback`).
-- Keep commits focused; avoid mixing refactors with behavior changes.
-
-For PRs:
-- Describe what changed and why.
-- Link related issues (for example `Closes #123`).
-- Include screenshots/GIFs for UI changes.
-- Call out platform-specific impact (Windows/macOS/Linux) when relevant.
+- To save time, only create basic tests if really needed for non-trivial tasks/ bug fixes. No unnecessary testing.
+- Run `npm test` and `npm run lint` before finishing

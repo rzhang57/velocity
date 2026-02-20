@@ -27,16 +27,20 @@ import {
   type AnnotationRegion,
   type CropRegion,
   type FigureData,
+  type CameraHiddenRegion,
 } from "./types";
 import { VideoExporter, GifExporter, type ExportProgress, type ExportQuality, type ExportSettings, type ExportFormat, type GifFrameRate, type GifSizePreset, GIF_SIZE_PRESETS, calculateOutputDimensions } from "@/lib/exporter";
 import { type AspectRatio, getAspectRatioValue } from "@/utils/aspectRatioUtils";
 import { getAssetPath } from "@/lib/assetPath";
+import type { RecordingSession } from "@/types/recordingSession";
 
 const WALLPAPER_COUNT = 18;
 const WALLPAPER_PATHS = Array.from({ length: WALLPAPER_COUNT }, (_, i) => `/wallpapers/wallpaper${i + 1}.jpg`);
 
 export default function VideoEditor() {
   const [videoPath, setVideoPath] = useState<string | null>(null);
+  const [recordingSession, setRecordingSession] = useState<RecordingSession | null>(null);
+  const [cameraVideoPath, setCameraVideoPath] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -53,6 +57,8 @@ export default function VideoEditor() {
   const [selectedZoomId, setSelectedZoomId] = useState<string | null>(null);
   const [trimRegions, setTrimRegions] = useState<TrimRegion[]>([]);
   const [selectedTrimId, setSelectedTrimId] = useState<string | null>(null);
+  const [cameraHiddenRegions, setCameraHiddenRegions] = useState<CameraHiddenRegion[]>([]);
+  const [selectedCameraHiddenId, setSelectedCameraHiddenId] = useState<string | null>(null);
   const [annotationRegions, setAnnotationRegions] = useState<AnnotationRegion[]>([]);
   const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
@@ -71,6 +77,7 @@ export default function VideoEditor() {
   const nextTrimIdRef = useRef(1);
   const nextAnnotationIdRef = useRef(1);
   const nextAnnotationZIndexRef = useRef(1); // Track z-index for stacking order
+  const nextCameraHiddenIdRef = useRef(1);
   const exporterRef = useRef<VideoExporter | null>(null);
 
   // Helper to convert file path to proper file:// URL
@@ -92,13 +99,22 @@ export default function VideoEditor() {
   useEffect(() => {
     async function loadVideo() {
       try {
-        const result = await window.electronAPI.getCurrentVideoPath();
-        
-        if (result.success && result.path) {
-          const videoUrl = toFileUrl(result.path);
-          setVideoPath(videoUrl);
+        const sessionResult = await window.electronAPI.getCurrentRecordingSession();
+        if (sessionResult.success && sessionResult.session) {
+          const session = sessionResult.session as unknown as RecordingSession;
+          setRecordingSession(session);
+          setVideoPath(toFileUrl(session.screenVideoPath));
+          setCameraVideoPath(session.cameraVideoPath ? toFileUrl(session.cameraVideoPath) : null);
         } else {
-          setError('No video to load. Please record or select a video.');
+          const result = await window.electronAPI.getCurrentVideoPath();
+          if (result.success && result.path) {
+            const videoUrl = toFileUrl(result.path);
+            setRecordingSession(null);
+            setCameraVideoPath(null);
+            setVideoPath(videoUrl);
+          } else {
+            setError('No video to load. Please record or select a video.');
+          }
         }
       } catch (err) {
         setError('Error loading video: ' + String(err));
@@ -154,6 +170,7 @@ export default function VideoEditor() {
     if (id) {
       setSelectedZoomId(null);
       setSelectedAnnotationId(null);
+      setSelectedCameraHiddenId(null);
     }
   }, []);
 
@@ -162,6 +179,16 @@ export default function VideoEditor() {
     if (id) {
       setSelectedZoomId(null);
       setSelectedTrimId(null);
+      setSelectedCameraHiddenId(null);
+    }
+  }, []);
+
+  const handleSelectCameraHidden = useCallback((id: string | null) => {
+    setSelectedCameraHiddenId(id);
+    if (id) {
+      setSelectedZoomId(null);
+      setSelectedTrimId(null);
+      setSelectedAnnotationId(null);
     }
   }, []);
 
@@ -220,6 +247,41 @@ export default function VideoEditor() {
       ),
     );
   }, []);
+
+  const handleCameraHiddenAdded = useCallback((span: Span) => {
+    const id = `camera-hide-${nextCameraHiddenIdRef.current++}`;
+    const newRegion: CameraHiddenRegion = {
+      id,
+      startMs: Math.round(span.start),
+      endMs: Math.round(span.end),
+    };
+    setCameraHiddenRegions((prev) => [...prev, newRegion]);
+    setSelectedCameraHiddenId(id);
+    setSelectedZoomId(null);
+    setSelectedTrimId(null);
+    setSelectedAnnotationId(null);
+  }, []);
+
+  const handleCameraHiddenSpanChange = useCallback((id: string, span: Span) => {
+    setCameraHiddenRegions((prev) =>
+      prev.map((region) =>
+        region.id === id
+          ? {
+              ...region,
+              startMs: Math.round(span.start),
+              endMs: Math.round(span.end),
+            }
+          : region,
+      ),
+    );
+  }, []);
+
+  const handleCameraHiddenDelete = useCallback((id: string) => {
+    setCameraHiddenRegions((prev) => prev.filter((region) => region.id !== id));
+    if (selectedCameraHiddenId === id) {
+      setSelectedCameraHiddenId(null);
+    }
+  }, [selectedCameraHiddenId]);
 
   const handleZoomFocusChange = useCallback((id: string, focus: ZoomFocus) => {
     setZoomRegions((prev) =>
@@ -438,6 +500,12 @@ export default function VideoEditor() {
     }
   }, [selectedAnnotationId, annotationRegions]);
 
+  useEffect(() => {
+    if (selectedCameraHiddenId && !cameraHiddenRegions.some((region) => region.id === selectedCameraHiddenId)) {
+      setSelectedCameraHiddenId(null);
+    }
+  }, [selectedCameraHiddenId, cameraHiddenRegions]);
+
   const handleExport = useCallback(async (settings: ExportSettings) => {
     if (!videoPath) {
       toast.error('No video loaded');
@@ -474,6 +542,9 @@ export default function VideoEditor() {
         // GIF Export
         const gifExporter = new GifExporter({
           videoUrl: videoPath,
+          cameraVideoUrl: cameraVideoPath || undefined,
+          cameraStartOffsetMs: recordingSession?.cameraStartOffsetMs,
+          cameraHiddenRegions,
           width: settings.gifConfig.width,
           height: settings.gifConfig.height,
           frameRate: settings.gifConfig.frameRate,
@@ -600,6 +671,9 @@ export default function VideoEditor() {
 
         const exporter = new VideoExporter({
           videoUrl: videoPath,
+          cameraVideoUrl: cameraVideoPath || undefined,
+          cameraStartOffsetMs: recordingSession?.cameraStartOffsetMs,
+          cameraHiddenRegions,
           width: exportWidth,
           height: exportHeight,
           frameRate: 60,
@@ -663,7 +737,7 @@ export default function VideoEditor() {
       setShowExportDialog(false);
       setExportProgress(null);
     }
-  }, [videoPath, wallpaper, zoomRegions, trimRegions, shadowIntensity, showBlur, motionBlurEnabled, borderRadius, padding, cropRegion, annotationRegions, isPlaying, aspectRatio, exportQuality]);
+  }, [videoPath, cameraVideoPath, recordingSession, cameraHiddenRegions, wallpaper, zoomRegions, trimRegions, shadowIntensity, showBlur, motionBlurEnabled, borderRadius, padding, cropRegion, annotationRegions, isPlaying, aspectRatio, exportQuality]);
 
   const handleOpenExportDialog = useCallback(() => {
     if (!videoPath) {
@@ -751,6 +825,9 @@ export default function VideoEditor() {
                       aspectRatio={aspectRatio}
                       ref={videoPlaybackRef}
                       videoPath={videoPath || ''}
+                      cameraVideoPath={cameraVideoPath || undefined}
+                      cameraStartOffsetMs={recordingSession?.cameraStartOffsetMs}
+                      cameraHiddenRegions={cameraHiddenRegions}
                       onDurationChange={setDuration}
                       onTimeUpdate={setCurrentTime}
                       currentTime={currentTime}
@@ -822,6 +899,12 @@ export default function VideoEditor() {
               onAnnotationDelete={handleAnnotationDelete}
               selectedAnnotationId={selectedAnnotationId}
               onSelectAnnotation={handleSelectAnnotation}
+              cameraHiddenRegions={recordingSession?.cameraCaptured ? cameraHiddenRegions : []}
+              onCameraHiddenAdded={recordingSession?.cameraCaptured ? handleCameraHiddenAdded : undefined}
+              onCameraHiddenSpanChange={recordingSession?.cameraCaptured ? handleCameraHiddenSpanChange : undefined}
+              onCameraHiddenDelete={recordingSession?.cameraCaptured ? handleCameraHiddenDelete : undefined}
+              selectedCameraHiddenId={recordingSession?.cameraCaptured ? selectedCameraHiddenId : null}
+              onSelectCameraHidden={recordingSession?.cameraCaptured ? handleSelectCameraHidden : undefined}
               aspectRatio={aspectRatio}
               onAspectRatioChange={setAspectRatio}
             />

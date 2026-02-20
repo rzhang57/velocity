@@ -2,12 +2,15 @@ import GIF from 'gif.js';
 import type { ExportProgress, ExportResult, GifFrameRate, GifSizePreset, GIF_SIZE_PRESETS } from './types';
 import { StreamingVideoDecoder } from './streamingDecoder';
 import { FrameRenderer } from './frameRenderer';
-import type { ZoomRegion, CropRegion, TrimRegion, AnnotationRegion } from '@/components/video-editor/types';
+import type { ZoomRegion, CropRegion, TrimRegion, AnnotationRegion, CameraHiddenRegion } from '@/components/video-editor/types';
 
 const GIF_WORKER_URL = new URL('gif.js/dist/gif.worker.js', import.meta.url).toString();
 
 interface GifExporterConfig {
   videoUrl: string;
+  cameraVideoUrl?: string;
+  cameraStartOffsetMs?: number;
+  cameraHiddenRegions?: CameraHiddenRegion[];
   width: number;
   height: number;
   frameRate: GifFrameRate;
@@ -88,6 +91,9 @@ export class GifExporter {
       this.renderer = new FrameRenderer({
         width: this.config.width,
         height: this.config.height,
+        cameraVideoUrl: this.config.cameraVideoUrl,
+        cameraStartOffsetMs: this.config.cameraStartOffsetMs,
+        cameraHiddenRegions: this.config.cameraHiddenRegions,
         wallpaper: this.config.wallpaper,
         zoomRegions: this.config.zoomRegions,
         showShadow: this.config.showShadow,

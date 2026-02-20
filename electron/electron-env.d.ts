@@ -27,9 +27,19 @@ interface Window {
     getSources: (opts: Electron.SourcesOptions) => Promise<ProcessedDesktopSource[]>
     switchToEditor: () => Promise<void>
     openSourceSelector: () => Promise<void>
+    openCameraPreviewWindow: (deviceId?: string) => Promise<{ success: boolean }>
+    closeCameraPreviewWindow: () => Promise<{ success: boolean }>
+    setHudOverlayWidth: (width: number) => Promise<{ success: boolean }>
     selectSource: (source: any) => Promise<any>
     getSelectedSource: () => Promise<any>
     storeRecordedVideo: (videoData: ArrayBuffer, fileName: string) => Promise<{ success: boolean; path?: string; message?: string }>
+    storeRecordingSession: (payload: {
+      screenVideoData: ArrayBuffer
+      screenFileName: string
+      cameraVideoData?: ArrayBuffer
+      cameraFileName?: string
+      session: Record<string, unknown>
+    }) => Promise<{ success: boolean; session?: Record<string, unknown>; message?: string; error?: string }>
     getRecordedVideoPath: () => Promise<{ success: boolean; path?: string; message?: string }>
     setRecordingState: (recording: boolean) => Promise<void>
     onStopRecordingFromTray: (callback: () => void) => () => void
@@ -38,6 +48,8 @@ interface Window {
     openVideoFilePicker: () => Promise<{ success: boolean; path?: string; cancelled?: boolean }>
     setCurrentVideoPath: (path: string) => Promise<{ success: boolean }>
     getCurrentVideoPath: () => Promise<{ success: boolean; path?: string }>
+    setCurrentRecordingSession: (session: Record<string, unknown>) => Promise<{ success: boolean }>
+    getCurrentRecordingSession: () => Promise<{ success: boolean; session?: Record<string, unknown> }>
     clearCurrentVideoPath: () => Promise<{ success: boolean }>
     getPlatform: () => Promise<string>
     hudOverlayHide: () => void;

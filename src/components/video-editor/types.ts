@@ -19,6 +19,12 @@ export interface TrimRegion {
   endMs: number;
 }
 
+export interface CameraHiddenRegion {
+  id: string;
+  startMs: number;
+  endMs: number;
+}
+
 export type AnnotationType = 'text' | 'image' | 'figure';
 
 export type ArrowDirection = 'up' | 'down' | 'left' | 'right' | 'up-right' | 'up-left' | 'down-right' | 'down-left';

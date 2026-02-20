@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTimelineContext } from "dnd-timeline";
 import { Button } from "@/components/ui/button";
-import { Plus, Scissors, ZoomIn, MessageSquare, ChevronDown, Check } from "lucide-react";
+import { Plus, Scissors, ZoomIn, MessageSquare, ChevronDown, Check, CameraOff } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import TimelineWrapper from "./TimelineWrapper";
@@ -9,7 +9,7 @@ import Row from "./Row";
 import Item from "./Item";
 import KeyframeMarkers from "./KeyframeMarkers";
 import type { Range, Span } from "dnd-timeline";
-import type { ZoomRegion, TrimRegion, AnnotationRegion } from "../types";
+import type { ZoomRegion, TrimRegion, AnnotationRegion, CameraHiddenRegion } from "../types";
 import { v4 as uuidv4 } from 'uuid';
 import {
   DropdownMenu,
@@ -24,6 +24,7 @@ import { TutorialHelp } from "../TutorialHelp";
 const ZOOM_ROW_ID = "row-zoom";
 const TRIM_ROW_ID = "row-trim";
 const ANNOTATION_ROW_ID = "row-annotation";
+const CAMERA_ROW_ID = "row-camera";
 const FALLBACK_RANGE_MS = 1000;
 const TARGET_MARKER_COUNT = 12;
 
@@ -49,6 +50,12 @@ interface TimelineEditorProps {
   onAnnotationDelete?: (id: string) => void;
   selectedAnnotationId?: string | null;
   onSelectAnnotation?: (id: string | null) => void;
+  cameraHiddenRegions?: CameraHiddenRegion[];
+  onCameraHiddenAdded?: (span: Span) => void;
+  onCameraHiddenSpanChange?: (id: string, span: Span) => void;
+  onCameraHiddenDelete?: (id: string) => void;
+  selectedCameraHiddenId?: string | null;
+  onSelectCameraHidden?: (id: string | null) => void;
   aspectRatio: AspectRatio;
   onAspectRatioChange: (aspectRatio: AspectRatio) => void;
 }
@@ -67,7 +74,7 @@ interface TimelineRenderItem {
   span: Span;
   label: string;
   zoomDepth?: number;
-  variant: 'zoom' | 'trim' | 'annotation';
+  variant: 'zoom' | 'trim' | 'annotation' | 'camera';
 }
 
 const SCALE_CANDIDATES = [
@@ -396,9 +403,11 @@ function Timeline({
   onSelectZoom,
   onSelectTrim,
   onSelectAnnotation,
+  onSelectCameraHidden,
   selectedZoomId,
   selectedTrimId,
   selectedAnnotationId,
+  selectedCameraHiddenId,
   keyframes = [],
 }: {
   items: TimelineRenderItem[];
@@ -409,9 +418,11 @@ function Timeline({
   onSelectZoom?: (id: string | null) => void;
   onSelectTrim?: (id: string | null) => void;
   onSelectAnnotation?: (id: string | null) => void;
+  onSelectCameraHidden?: (id: string | null) => void;
   selectedZoomId: string | null;
   selectedTrimId?: string | null;
   selectedAnnotationId?: string | null;
+  selectedCameraHiddenId?: string | null;
   keyframes?: { id: string; time: number }[];
 }) {
   const { setTimelineRef, style, sidebarWidth, range, pixelsToValue } = useTimelineContext();
@@ -430,6 +441,7 @@ function Timeline({
     onSelectZoom?.(null);
     onSelectTrim?.(null);
     onSelectAnnotation?.(null);
+    onSelectCameraHidden?.(null);
 
     const rect = e.currentTarget.getBoundingClientRect();
     const clickX = e.clientX - rect.left - sidebarWidth;
@@ -441,11 +453,12 @@ function Timeline({
     const timeInSeconds = absoluteMs / 1000;
 
     onSeek(timeInSeconds);
-  }, [onSeek, onSelectZoom, onSelectTrim, onSelectAnnotation, videoDurationMs, sidebarWidth, range.start, pixelsToValue]);
+  }, [onSeek, onSelectZoom, onSelectTrim, onSelectAnnotation, onSelectCameraHidden, videoDurationMs, sidebarWidth, range.start, pixelsToValue]);
 
   const zoomItems = items.filter(item => item.rowId === ZOOM_ROW_ID);
   const trimItems = items.filter(item => item.rowId === TRIM_ROW_ID);
   const annotationItems = items.filter(item => item.rowId === ANNOTATION_ROW_ID);
+  const cameraItems = items.filter(item => item.rowId === CAMERA_ROW_ID);
 
   return (
     <div
@@ -512,6 +525,24 @@ function Timeline({
           </Item>
         ))}
       </Row>
+
+      {(onSelectCameraHidden || cameraItems.length > 0) && (
+        <Row id={CAMERA_ROW_ID} isEmpty={cameraItems.length === 0} hint="Press C to add camera hide">
+          {cameraItems.map((item) => (
+            <Item
+              id={item.id}
+              key={item.id}
+              rowId={item.rowId}
+              span={item.span}
+              isSelected={item.id === selectedCameraHiddenId}
+              onSelect={() => onSelectCameraHidden?.(item.id)}
+              variant="camera"
+            >
+              {item.label}
+            </Item>
+          ))}
+        </Row>
+      )}
     </div>
   );
 }
@@ -538,6 +569,12 @@ export default function TimelineEditor({
   onAnnotationDelete,
   selectedAnnotationId,
   onSelectAnnotation,
+  cameraHiddenRegions = [],
+  onCameraHiddenAdded,
+  onCameraHiddenSpanChange,
+  onCameraHiddenDelete,
+  selectedCameraHiddenId,
+  onSelectCameraHidden,
   aspectRatio,
   onAspectRatioChange,
 }: TimelineEditorProps) {
@@ -615,8 +652,10 @@ export default function TimelineEditor({
   // this effect on every drag/resize and races with dnd-timeline's internal state.
   const zoomRegionsRef = useRef(zoomRegions);
   const trimRegionsRef = useRef(trimRegions);
+  const cameraHiddenRegionsRef = useRef(cameraHiddenRegions);
   zoomRegionsRef.current = zoomRegions;
   trimRegionsRef.current = trimRegions;
+  cameraHiddenRegionsRef.current = cameraHiddenRegions;
 
   useEffect(() => {
     if (totalMs === 0 || safeMinDurationMs <= 0) {
@@ -646,13 +685,26 @@ export default function TimelineEditor({
         onTrimSpanChange?.(region.id, { start: normalizedStart, end: normalizedEnd });
       }
     });
+
+    cameraHiddenRegionsRef.current.forEach((region) => {
+      const clampedStart = Math.max(0, Math.min(region.startMs, totalMs));
+      const minEnd = clampedStart + safeMinDurationMs;
+      const clampedEnd = Math.min(totalMs, Math.max(minEnd, region.endMs));
+      const normalizedStart = Math.max(0, Math.min(clampedStart, totalMs - safeMinDurationMs));
+      const normalizedEnd = Math.max(minEnd, Math.min(clampedEnd, totalMs));
+
+      if (normalizedStart !== region.startMs || normalizedEnd !== region.endMs) {
+        onCameraHiddenSpanChange?.(region.id, { start: normalizedStart, end: normalizedEnd });
+      }
+    });
     // Only re-run when the timeline scale changes, not on every region edit
-  }, [totalMs, safeMinDurationMs, onZoomSpanChange, onTrimSpanChange]);
+  }, [totalMs, safeMinDurationMs, onZoomSpanChange, onTrimSpanChange, onCameraHiddenSpanChange]);
 
   const hasOverlap = useCallback((newSpan: Span, excludeId?: string): boolean => {
     // Determine which row the item belongs to
     const isZoomItem = zoomRegions.some(r => r.id === excludeId);
     const isTrimItem = trimRegions.some(r => r.id === excludeId);
+    const isCameraItem = cameraHiddenRegions.some(r => r.id === excludeId);
     const isAnnotationItem = annotationRegions.some(r => r.id === excludeId);
 
     if (isAnnotationItem) {
@@ -675,9 +727,12 @@ export default function TimelineEditor({
     if (isTrimItem) {
       return checkOverlap(trimRegions);
     }
+    if (isCameraItem) {
+      return checkOverlap(cameraHiddenRegions);
+    }
 
     return false;
-  }, [zoomRegions, trimRegions, annotationRegions]);
+  }, [zoomRegions, trimRegions, cameraHiddenRegions, annotationRegions]);
 
   // At least 5% of the timeline or 1000ms, whichever is larger, so the region
   // is always wide enough to grab and resize comfortably.
@@ -763,6 +818,33 @@ export default function TimelineEditor({
     onAnnotationAdded({ start: startPos, end: endPos });
   }, [videoDuration, totalMs, currentTimeMs, onAnnotationAdded, defaultRegionDurationMs]);
 
+  const handleAddCameraHidden = useCallback(() => {
+    if (!videoDuration || videoDuration === 0 || totalMs === 0 || !onCameraHiddenAdded) {
+      return;
+    }
+
+    const defaultDuration = Math.min(defaultRegionDurationMs, totalMs);
+    if (defaultDuration <= 0) {
+      return;
+    }
+
+    const startPos = Math.max(0, Math.min(currentTimeMs, totalMs));
+    const sorted = [...cameraHiddenRegions].sort((a, b) => a.startMs - b.startMs);
+    const nextRegion = sorted.find(region => region.startMs > startPos);
+    const gapToNext = nextRegion ? nextRegion.startMs - startPos : totalMs - startPos;
+
+    const isOverlapping = sorted.some(region => startPos >= region.startMs && startPos < region.endMs);
+    if (isOverlapping || gapToNext <= 0) {
+      toast.error("Cannot place camera hide here", {
+        description: "A camera hide already exists at this location or not enough space is available.",
+      });
+      return;
+    }
+
+    const actualDuration = Math.min(defaultRegionDurationMs, gapToNext);
+    onCameraHiddenAdded({ start: startPos, end: startPos + actualDuration });
+  }, [videoDuration, totalMs, currentTimeMs, onCameraHiddenAdded, defaultRegionDurationMs, cameraHiddenRegions]);
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
@@ -780,6 +862,9 @@ export default function TimelineEditor({
       }
       if (e.key === 'a' || e.key === 'A') {
         handleAddAnnotation();
+      }
+      if (e.key === 'c' || e.key === 'C') {
+        handleAddCameraHidden();
       }
 
       // Tab: Cycle through overlapping annotations at current time
@@ -814,12 +899,15 @@ export default function TimelineEditor({
           deleteSelectedTrim();
         } else if (selectedAnnotationId) {
           deleteSelectedAnnotation();
+        } else if (selectedCameraHiddenId && onCameraHiddenDelete && onSelectCameraHidden) {
+          onCameraHiddenDelete(selectedCameraHiddenId);
+          onSelectCameraHidden(null);
         }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [addKeyframe, handleAddZoom, handleAddTrim, handleAddAnnotation, deleteSelectedKeyframe, deleteSelectedZoom, deleteSelectedTrim, deleteSelectedAnnotation, selectedKeyframeId, selectedZoomId, selectedTrimId, selectedAnnotationId, annotationRegions, currentTime, onSelectAnnotation]);
+  }, [addKeyframe, handleAddZoom, handleAddTrim, handleAddAnnotation, handleAddCameraHidden, deleteSelectedKeyframe, deleteSelectedZoom, deleteSelectedTrim, deleteSelectedAnnotation, selectedKeyframeId, selectedZoomId, selectedTrimId, selectedAnnotationId, selectedCameraHiddenId, onCameraHiddenDelete, onSelectCameraHidden, annotationRegions, currentTime, onSelectAnnotation]);
 
   const clampedRange = useMemo<Range>(() => {
     if (totalMs === 0) {
@@ -872,15 +960,24 @@ export default function TimelineEditor({
       };
     });
 
-    return [...zooms, ...trims, ...annotations];
-  }, [zoomRegions, trimRegions, annotationRegions]);
+    const cameraHides: TimelineRenderItem[] = cameraHiddenRegions.map((region, index) => ({
+      id: region.id,
+      rowId: CAMERA_ROW_ID,
+      span: { start: region.startMs, end: region.endMs },
+      label: `Camera Hide ${index + 1}`,
+      variant: 'camera',
+    }));
+
+    return [...zooms, ...trims, ...annotations, ...cameraHides];
+  }, [zoomRegions, trimRegions, annotationRegions, cameraHiddenRegions]);
 
   // Flat list of all non-annotation region spans for neighbour-clamping during drag/resize
   const allRegionSpans = useMemo(() => {
     const zooms = zoomRegions.map((r) => ({ id: r.id, start: r.startMs, end: r.endMs }));
     const trims = trimRegions.map((r) => ({ id: r.id, start: r.startMs, end: r.endMs }));
-    return [...zooms, ...trims];
-  }, [zoomRegions, trimRegions]);
+    const cameraHides = cameraHiddenRegions.map((r) => ({ id: r.id, start: r.startMs, end: r.endMs }));
+    return [...zooms, ...trims, ...cameraHides];
+  }, [zoomRegions, trimRegions, cameraHiddenRegions]);
 
   const handleItemSpanChange = useCallback((id: string, span: Span) => {
     // Check if it's a zoom or trim item
@@ -888,10 +985,12 @@ export default function TimelineEditor({
       onZoomSpanChange(id, span);
     } else if (trimRegions.some(r => r.id === id)) {
       onTrimSpanChange?.(id, span);
+    } else if (cameraHiddenRegions.some(r => r.id === id)) {
+      onCameraHiddenSpanChange?.(id, span);
     } else if (annotationRegions.some(r => r.id === id)) {
       onAnnotationSpanChange?.(id, span);
     }
-  }, [zoomRegions, trimRegions, annotationRegions, onZoomSpanChange, onTrimSpanChange, onAnnotationSpanChange]);
+  }, [zoomRegions, trimRegions, cameraHiddenRegions, annotationRegions, onZoomSpanChange, onTrimSpanChange, onCameraHiddenSpanChange, onAnnotationSpanChange]);
 
   if (!videoDuration || videoDuration === 0) {
     return (
@@ -937,6 +1036,16 @@ export default function TimelineEditor({
             title="Add Annotation (A)"
           >
             <MessageSquare className="w-4 h-4" />
+          </Button>
+          <Button
+            onClick={handleAddCameraHidden}
+            variant="ghost"
+            size="icon"
+            disabled={!onCameraHiddenAdded}
+            className="h-7 w-7 text-slate-400 hover:text-[#38bdf8] hover:bg-[#38bdf8]/10 transition-all"
+            title="Add Camera Hide (C)"
+          >
+            <CameraOff className="w-4 h-4" />
           </Button>
         </div>
         <div className="flex items-center gap-2">
@@ -1012,9 +1121,11 @@ export default function TimelineEditor({
             onSelectZoom={onSelectZoom}
             onSelectTrim={onSelectTrim}
             onSelectAnnotation={onSelectAnnotation}
+            onSelectCameraHidden={onSelectCameraHidden}
             selectedZoomId={selectedZoomId}
             selectedTrimId={selectedTrimId}
             selectedAnnotationId={selectedAnnotationId}
+            selectedCameraHiddenId={selectedCameraHiddenId}
             keyframes={keyframes}
 
           />

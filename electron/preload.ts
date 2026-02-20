@@ -20,6 +20,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openSourceSelector: () => {
     return ipcRenderer.invoke('open-source-selector')
   },
+  openCameraPreviewWindow: (deviceId?: string) => {
+    return ipcRenderer.invoke('open-camera-preview-window', deviceId)
+  },
+  closeCameraPreviewWindow: () => {
+    return ipcRenderer.invoke('close-camera-preview-window')
+  },
+  setHudOverlayWidth: (width: number) => {
+    return ipcRenderer.invoke('set-hud-overlay-width', width)
+  },
   selectSource: (source: any) => {
     return ipcRenderer.invoke('select-source', source)
   },
@@ -29,6 +38,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   storeRecordedVideo: (videoData: ArrayBuffer, fileName: string) => {
     return ipcRenderer.invoke('store-recorded-video', videoData, fileName)
+  },
+  storeRecordingSession: (payload: {
+    screenVideoData: ArrayBuffer
+    screenFileName: string
+    cameraVideoData?: ArrayBuffer
+    cameraFileName?: string
+    session: Record<string, unknown>
+  }) => {
+    return ipcRenderer.invoke('store-recording-session', payload)
   },
 
   getRecordedVideoPath: () => {
@@ -56,6 +74,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   getCurrentVideoPath: () => {
     return ipcRenderer.invoke('get-current-video-path')
+  },
+  setCurrentRecordingSession: (session: Record<string, unknown>) => {
+    return ipcRenderer.invoke('set-current-recording-session', session)
+  },
+  getCurrentRecordingSession: () => {
+    return ipcRenderer.invoke('get-current-recording-session')
   },
   clearCurrentVideoPath: () => {
     return ipcRenderer.invoke('clear-current-video-path')

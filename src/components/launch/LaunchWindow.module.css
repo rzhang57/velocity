@@ -11,7 +11,8 @@
   cursor: pointer;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 0;
+  justify-content: center;
 }
 
 .folderText {
@@ -28,10 +29,71 @@
   background: none;
   border: none;
   color: #fff;
-  opacity: 0.7;
-  transition: opacity 0.15s;
+  opacity: 0.78;
+  transition: opacity 0.18s ease;
 }
 .hudOverlayButton:hover {
-  opacity: 0.7;
+  opacity: 0.95;
   background: none !important;
+}
+
+.hudActionButton {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03) !important;
+  transition: transform 0.16s ease, background-color 0.16s ease, border-color 0.16s ease;
+}
+
+.hudActionButton:hover {
+  transform: translateY(-1px);
+  background: rgba(255, 255, 255, 0.08) !important;
+  border-color: rgba(255, 255, 255, 0.24);
+}
+
+.hudActionButton:active {
+  transform: translateY(0);
+}
+
+.hudActionIcon {
+  transition: transform 0.16s ease, opacity 0.16s ease;
+}
+
+.hudActionButton:hover .hudActionIcon {
+  transform: scale(1.06);
+  opacity: 0.95;
+}
+
+.hudActionDanger:hover {
+  background: rgba(239, 68, 68, 0.15) !important;
+  border-color: rgba(248, 113, 113, 0.42);
+}
+
+.toggleButton {
+  border: 1px solid rgba(255, 255, 255, 0.16) !important;
+  border-radius: 8px !important;
+  background: rgba(255, 255, 255, 0.03) !important;
+  transition: background-color 0.16s ease, border-color 0.16s ease, transform 0.16s ease;
+}
+
+.toggleButton:hover {
+  transform: translateY(-1px);
+}
+
+.toggleOn {
+  background: rgba(255, 255, 255, 0.1) !important;
+  border-color: rgba(255, 255, 255, 0.28) !important;
+}
+
+.toggleOn:hover {
+  background: rgba(239, 68, 68, 0.14) !important;
+  border-color: rgba(248, 113, 113, 0.5) !important;
+}
+
+.toggleOff {
+  background: rgba(255, 255, 255, 0.03) !important;
+}
+
+.toggleOff:hover {
+  background: rgba(255, 255, 255, 0.1) !important;
+  border-color: rgba(255, 255, 255, 0.28) !important;
 }

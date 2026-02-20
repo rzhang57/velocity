@@ -2,10 +2,13 @@ import type { ExportConfig, ExportProgress, ExportResult } from './types';
 import { StreamingVideoDecoder } from './streamingDecoder';
 import { FrameRenderer } from './frameRenderer';
 import { VideoMuxer } from './muxer';
-import type { ZoomRegion, CropRegion, TrimRegion, AnnotationRegion } from '@/components/video-editor/types';
+import type { ZoomRegion, CropRegion, TrimRegion, AnnotationRegion, CameraHiddenRegion } from '@/components/video-editor/types';
 
 interface VideoExporterConfig extends ExportConfig {
   videoUrl: string;
+  cameraVideoUrl?: string;
+  cameraStartOffsetMs?: number;
+  cameraHiddenRegions?: CameraHiddenRegion[];
   wallpaper: string;
   zoomRegions: ZoomRegion[];
   trimRegions?: TrimRegion[];
@@ -56,6 +59,9 @@ export class VideoExporter {
       this.renderer = new FrameRenderer({
         width: this.config.width,
         height: this.config.height,
+        cameraVideoUrl: this.config.cameraVideoUrl,
+        cameraStartOffsetMs: this.config.cameraStartOffsetMs,
+        cameraHiddenRegions: this.config.cameraHiddenRegions,
         wallpaper: this.config.wallpaper,
         zoomRegions: this.config.zoomRegions,
         showShadow: this.config.showShadow,

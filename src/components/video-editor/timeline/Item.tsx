@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { useItem } from "dnd-timeline";
 import type { Span } from "dnd-timeline";
 import { cn } from "@/lib/utils";
-import { ZoomIn, Scissors, MessageSquare } from "lucide-react";
+import { ZoomIn, Scissors, MessageSquare, CameraOff } from "lucide-react";
 import glassStyles from "./ItemGlass.module.css";
 
 interface ItemProps {
@@ -13,7 +13,7 @@ interface ItemProps {
   isSelected?: boolean;
   onSelect?: () => void;
   zoomDepth?: number;
-  variant?: 'zoom' | 'trim' | 'annotation';
+  variant?: 'zoom' | 'trim' | 'annotation' | 'camera';
 }
 
 // Map zoom depth to multiplier labels
@@ -54,17 +54,22 @@ export default function Item({
 
   const isZoom = variant === 'zoom';
   const isTrim = variant === 'trim';
+  const isCamera = variant === 'camera';
 
   const glassClass = isZoom
     ? glassStyles.glassGreen
     : isTrim
     ? glassStyles.glassRed
+    : isCamera
+    ? glassStyles.glassYellow
     : glassStyles.glassYellow;
 
   const endCapColor = isZoom
     ? '#21916A'
     : isTrim
     ? '#ef4444'
+    : isCamera
+    ? '#38bdf8'
     : '#B4A046';
 
   const timeLabel = useMemo(
@@ -119,6 +124,13 @@ export default function Item({
                   <Scissors className="w-3.5 h-3.5 shrink-0" />
                   <span className="text-[11px] font-semibold tracking-tight whitespace-nowrap">
                     Trim
+                  </span>
+                </>
+              ) : isCamera ? (
+                <>
+                  <CameraOff className="w-3.5 h-3.5 shrink-0" />
+                  <span className="text-[11px] font-semibold tracking-tight whitespace-nowrap">
+                    Hide Cam
                   </span>
                 </>
               ) : (

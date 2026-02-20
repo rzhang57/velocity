@@ -1,16 +1,21 @@
-import { ipcMain, desktopCapturer, BrowserWindow, shell, app, dialog } from 'electron'
+import { ipcMain, desktopCapturer, BrowserWindow, shell, app, dialog, screen } from 'electron'
 
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { RECORDINGS_DIR } from '../main'
 
 let selectedSource: any = null
+let currentVideoPath: string | null = null
+let currentRecordingSession: any = null
 
 export function registerIpcHandlers(
   createEditorWindow: () => void,
   createSourceSelectorWindow: () => BrowserWindow,
+  createCameraPreviewWindow: (deviceId?: string) => BrowserWindow,
+  closeCameraPreviewWindow: () => void,
   getMainWindow: () => BrowserWindow | null,
   getSourceSelectorWindow: () => BrowserWindow | null,
+  getCameraPreviewWindow: () => BrowserWindow | null,
   onRecordingStateChange?: (recording: boolean, sourceName: string) => void
 ) {
   ipcMain.handle('get-sources', async (_, opts) => {
@@ -46,6 +51,21 @@ export function registerIpcHandlers(
     createSourceSelectorWindow()
   })
 
+  ipcMain.handle('open-camera-preview-window', (_, deviceId?: string) => {
+    const current = getCameraPreviewWindow()
+    if (current) {
+      current.close()
+    }
+    const win = createCameraPreviewWindow(deviceId)
+    win.focus()
+    return { success: true }
+  })
+
+  ipcMain.handle('close-camera-preview-window', () => {
+    closeCameraPreviewWindow()
+    return { success: true }
+  })
+
   ipcMain.handle('switch-to-editor', () => {
     const mainWin = getMainWindow()
     if (mainWin) {
@@ -61,6 +81,7 @@ export function registerIpcHandlers(
       const videoPath = path.join(RECORDINGS_DIR, fileName)
       await fs.writeFile(videoPath, Buffer.from(videoData))
       currentVideoPath = videoPath;
+      currentRecordingSession = null;
       return {
         success: true,
         path: videoPath,
@@ -72,6 +93,69 @@ export function registerIpcHandlers(
         success: false,
         message: 'Failed to store video',
         error: String(error)
+      }
+    }
+  })
+
+  ipcMain.handle('set-hud-overlay-width', (_, width: number) => {
+    const mainWin = getMainWindow()
+    if (!mainWin || mainWin.isDestroyed()) {
+      return { success: false }
+    }
+
+    const clampedWidth = Math.max(500, Math.min(1100, Math.round(width)))
+    const bounds = mainWin.getBounds()
+    const display = screen.getDisplayMatching(bounds)
+    const workArea = display.workArea
+    const x = Math.floor(workArea.x + (workArea.width - clampedWidth) / 2)
+    const y = Math.floor(workArea.y + workArea.height - bounds.height - 5)
+
+    mainWin.setBounds({
+      x,
+      y,
+      width: clampedWidth,
+      height: bounds.height,
+    }, true)
+    return { success: true }
+  })
+
+  ipcMain.handle('store-recording-session', async (_, payload: {
+    screenVideoData: ArrayBuffer
+    screenFileName: string
+    cameraVideoData?: ArrayBuffer
+    cameraFileName?: string
+    session: Record<string, unknown>
+  }) => {
+    try {
+      const screenVideoPath = path.join(RECORDINGS_DIR, payload.screenFileName)
+      await fs.writeFile(screenVideoPath, Buffer.from(payload.screenVideoData))
+
+      let cameraVideoPath: string | undefined
+      if (payload.cameraVideoData && payload.cameraFileName) {
+        cameraVideoPath = path.join(RECORDINGS_DIR, payload.cameraFileName)
+        await fs.writeFile(cameraVideoPath, Buffer.from(payload.cameraVideoData))
+      }
+
+      const session = {
+        ...payload.session,
+        screenVideoPath,
+        ...(cameraVideoPath ? { cameraVideoPath } : {}),
+      }
+
+      currentRecordingSession = session
+      currentVideoPath = screenVideoPath
+
+      return {
+        success: true,
+        session,
+        message: 'Recording session stored successfully',
+      }
+    } catch (error) {
+      console.error('Failed to store recording session:', error)
+      return {
+        success: false,
+        message: 'Failed to store recording session',
+        error: String(error),
       }
     }
   })
@@ -198,10 +282,9 @@ export function registerIpcHandlers(
     }
   });
 
-  let currentVideoPath: string | null = null;
-
   ipcMain.handle('set-current-video-path', (_, path: string) => {
     currentVideoPath = path;
+    currentRecordingSession = null;
     return { success: true };
   });
 
@@ -211,7 +294,20 @@ export function registerIpcHandlers(
 
   ipcMain.handle('clear-current-video-path', () => {
     currentVideoPath = null;
+    currentRecordingSession = null;
     return { success: true };
+  });
+
+  ipcMain.handle('set-current-recording-session', (_, session: Record<string, unknown>) => {
+    currentRecordingSession = session;
+    currentVideoPath = typeof session.screenVideoPath === 'string' ? session.screenVideoPath : null;
+    return { success: true };
+  });
+
+  ipcMain.handle('get-current-recording-session', () => {
+    return currentRecordingSession
+      ? { success: true, session: currentRecordingSession }
+      : { success: false };
   });
 
   ipcMain.handle('get-platform', () => {

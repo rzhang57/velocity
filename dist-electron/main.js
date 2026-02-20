@@ -7,9 +7,13 @@ const APP_ROOT = path.join(__dirname$1, "..");
 const VITE_DEV_SERVER_URL$1 = process.env["VITE_DEV_SERVER_URL"];
 const RENDERER_DIST$1 = path.join(APP_ROOT, "dist");
 let hudOverlayWindow = null;
+let cameraPreviewWindow = null;
 ipcMain.on("hud-overlay-hide", () => {
   if (hudOverlayWindow && !hudOverlayWindow.isDestroyed()) {
     hudOverlayWindow.minimize();
+  }
+  if (cameraPreviewWindow && !cameraPreviewWindow.isDestroyed()) {
+    cameraPreviewWindow.minimize();
   }
 });
 function createHudOverlayWindow() {
@@ -23,12 +27,13 @@ function createHudOverlayWindow() {
     width: windowWidth,
     height: windowHeight,
     minWidth: 500,
-    maxWidth: 500,
+    maxWidth: 1100,
     minHeight: 100,
     maxHeight: 100,
     x,
     y,
     frame: false,
+    thickFrame: false,
     transparent: true,
     resizable: false,
     alwaysOnTop: true,
@@ -41,6 +46,7 @@ function createHudOverlayWindow() {
       backgroundThrottling: false
     }
   });
+  win.setContentProtection(true);
   win.webContents.on("did-finish-load", () => {
     win == null ? void 0 : win.webContents.send("main-process-message", (/* @__PURE__ */ new Date()).toLocaleString());
   });
@@ -48,6 +54,11 @@ function createHudOverlayWindow() {
   win.on("closed", () => {
     if (hudOverlayWindow === win) {
       hudOverlayWindow = null;
+    }
+  });
+  win.on("minimize", () => {
+    if (cameraPreviewWindow && !cameraPreviewWindow.isDestroyed()) {
+      cameraPreviewWindow.minimize();
     }
   });
   if (VITE_DEV_SERVER_URL$1) {
@@ -107,6 +118,7 @@ function createSourceSelectorWindow() {
     x: Math.round((width - 620) / 2),
     y: Math.round((height - 420) / 2),
     frame: false,
+    thickFrame: false,
     resizable: false,
     alwaysOnTop: true,
     transparent: true,
@@ -117,6 +129,7 @@ function createSourceSelectorWindow() {
       contextIsolation: true
     }
   });
+  win.setContentProtection(true);
   if (VITE_DEV_SERVER_URL$1) {
     win.loadURL(VITE_DEV_SERVER_URL$1 + "?windowType=source-selector");
   } else {
@@ -126,8 +139,74 @@ function createSourceSelectorWindow() {
   }
   return win;
 }
+function createCameraPreviewWindow(deviceId) {
+  if (cameraPreviewWindow && !cameraPreviewWindow.isDestroyed()) {
+    cameraPreviewWindow.focus();
+    return cameraPreviewWindow;
+  }
+  const primaryDisplay = screen.getPrimaryDisplay();
+  const { workArea } = primaryDisplay;
+  const windowWidth = 320;
+  const windowHeight = 200;
+  const x = Math.floor(workArea.x + workArea.width - windowWidth - 24);
+  const y = Math.floor(workArea.y + workArea.height - windowHeight - 140);
+  const win = new BrowserWindow({
+    width: windowWidth,
+    height: windowHeight,
+    minWidth: 220,
+    minHeight: 140,
+    x,
+    y,
+    frame: false,
+    thickFrame: false,
+    transparent: true,
+    resizable: true,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    hasShadow: false,
+    backgroundColor: "#00000000",
+    webPreferences: {
+      preload: path.join(__dirname$1, "preload.mjs"),
+      nodeIntegration: false,
+      contextIsolation: true,
+      backgroundThrottling: false
+    }
+  });
+  win.setContentProtection(true);
+  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  win.setAspectRatio(16 / 9);
+  const query = { windowType: "camera-preview", ...deviceId ? { deviceId } : {} };
+  if (VITE_DEV_SERVER_URL$1) {
+    const url = new URL(VITE_DEV_SERVER_URL$1);
+    url.searchParams.set("windowType", "camera-preview");
+    if (deviceId) {
+      url.searchParams.set("deviceId", deviceId);
+    }
+    win.loadURL(url.toString());
+  } else {
+    win.loadFile(path.join(RENDERER_DIST$1, "index.html"), { query });
+  }
+  cameraPreviewWindow = win;
+  win.on("closed", () => {
+    if (cameraPreviewWindow === win) {
+      cameraPreviewWindow = null;
+    }
+  });
+  return win;
+}
+function closeCameraPreviewWindow() {
+  if (cameraPreviewWindow && !cameraPreviewWindow.isDestroyed()) {
+    cameraPreviewWindow.close();
+  }
+  cameraPreviewWindow = null;
+}
+function getCameraPreviewWindow() {
+  return cameraPreviewWindow && !cameraPreviewWindow.isDestroyed() ? cameraPreviewWindow : null;
+}
 let selectedSource = null;
-function registerIpcHandlers(createEditorWindow2, createSourceSelectorWindow2, getMainWindow, getSourceSelectorWindow, onRecordingStateChange) {
+let currentVideoPath = null;
+let currentRecordingSession = null;
+function registerIpcHandlers(createEditorWindow2, createSourceSelectorWindow2, createCameraPreviewWindow2, closeCameraPreviewWindow2, getMainWindow, getSourceSelectorWindow, getCameraPreviewWindow2, onRecordingStateChange) {
   ipcMain.handle("get-sources", async (_, opts) => {
     const sources = await desktopCapturer.getSources(opts);
     return sources.map((source) => ({
@@ -157,6 +236,19 @@ function registerIpcHandlers(createEditorWindow2, createSourceSelectorWindow2, g
     }
     createSourceSelectorWindow2();
   });
+  ipcMain.handle("open-camera-preview-window", (_, deviceId) => {
+    const current = getCameraPreviewWindow2();
+    if (current) {
+      current.close();
+    }
+    const win = createCameraPreviewWindow2(deviceId);
+    win.focus();
+    return { success: true };
+  });
+  ipcMain.handle("close-camera-preview-window", () => {
+    closeCameraPreviewWindow2();
+    return { success: true };
+  });
   ipcMain.handle("switch-to-editor", () => {
     const mainWin = getMainWindow();
     if (mainWin) {
@@ -169,6 +261,7 @@ function registerIpcHandlers(createEditorWindow2, createSourceSelectorWindow2, g
       const videoPath = path.join(RECORDINGS_DIR, fileName);
       await fs.writeFile(videoPath, Buffer.from(videoData));
       currentVideoPath = videoPath;
+      currentRecordingSession = null;
       return {
         success: true,
         path: videoPath,
@@ -179,6 +272,55 @@ function registerIpcHandlers(createEditorWindow2, createSourceSelectorWindow2, g
       return {
         success: false,
         message: "Failed to store video",
+        error: String(error)
+      };
+    }
+  });
+  ipcMain.handle("set-hud-overlay-width", (_, width) => {
+    const mainWin = getMainWindow();
+    if (!mainWin || mainWin.isDestroyed()) {
+      return { success: false };
+    }
+    const clampedWidth = Math.max(500, Math.min(1100, Math.round(width)));
+    const bounds = mainWin.getBounds();
+    const display = screen.getDisplayMatching(bounds);
+    const workArea = display.workArea;
+    const x = Math.floor(workArea.x + (workArea.width - clampedWidth) / 2);
+    const y = Math.floor(workArea.y + workArea.height - bounds.height - 5);
+    mainWin.setBounds({
+      x,
+      y,
+      width: clampedWidth,
+      height: bounds.height
+    }, true);
+    return { success: true };
+  });
+  ipcMain.handle("store-recording-session", async (_, payload) => {
+    try {
+      const screenVideoPath = path.join(RECORDINGS_DIR, payload.screenFileName);
+      await fs.writeFile(screenVideoPath, Buffer.from(payload.screenVideoData));
+      let cameraVideoPath;
+      if (payload.cameraVideoData && payload.cameraFileName) {
+        cameraVideoPath = path.join(RECORDINGS_DIR, payload.cameraFileName);
+        await fs.writeFile(cameraVideoPath, Buffer.from(payload.cameraVideoData));
+      }
+      const session = {
+        ...payload.session,
+        screenVideoPath,
+        ...cameraVideoPath ? { cameraVideoPath } : {}
+      };
+      currentRecordingSession = session;
+      currentVideoPath = screenVideoPath;
+      return {
+        success: true,
+        session,
+        message: "Recording session stored successfully"
+      };
+    } catch (error) {
+      console.error("Failed to store recording session:", error);
+      return {
+        success: false,
+        message: "Failed to store recording session",
         error: String(error)
       };
     }
@@ -283,9 +425,9 @@ function registerIpcHandlers(createEditorWindow2, createSourceSelectorWindow2, g
       };
     }
   });
-  let currentVideoPath = null;
   ipcMain.handle("set-current-video-path", (_, path2) => {
     currentVideoPath = path2;
+    currentRecordingSession = null;
     return { success: true };
   });
   ipcMain.handle("get-current-video-path", () => {
@@ -293,7 +435,16 @@ function registerIpcHandlers(createEditorWindow2, createSourceSelectorWindow2, g
   });
   ipcMain.handle("clear-current-video-path", () => {
     currentVideoPath = null;
+    currentRecordingSession = null;
     return { success: true };
+  });
+  ipcMain.handle("set-current-recording-session", (_, session) => {
+    currentRecordingSession = session;
+    currentVideoPath = typeof session.screenVideoPath === "string" ? session.screenVideoPath : null;
+    return { success: true };
+  });
+  ipcMain.handle("get-current-recording-session", () => {
+    return currentRecordingSession ? { success: true, session: currentRecordingSession } : { success: false };
   });
   ipcMain.handle("get-platform", () => {
     return process.platform;
@@ -326,6 +477,19 @@ function createWindow() {
 }
 function createTray() {
   tray = new Tray(defaultTrayIcon);
+  if (process.platform === "win32") {
+    tray.on("double-click", () => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        if (mainWindow.isMinimized()) {
+          mainWindow.restore();
+        }
+        mainWindow.show();
+        mainWindow.focus();
+      } else {
+        createWindow();
+      }
+    });
+  }
 }
 function getTrayIcon(filename) {
   return nativeImage.createFromPath(path.join(process.env.VITE_PUBLIC || RENDERER_DIST, filename)).resize({
@@ -374,6 +538,7 @@ function createEditorWindowWrapper() {
     mainWindow.close();
     mainWindow = null;
   }
+  closeCameraPreviewWindow();
   mainWindow = createEditorWindow();
 }
 function createSourceSelectorWindowWrapper() {
@@ -401,8 +566,11 @@ app.whenReady().then(async () => {
   registerIpcHandlers(
     createEditorWindowWrapper,
     createSourceSelectorWindowWrapper,
+    createCameraPreviewWindow,
+    closeCameraPreviewWindow,
     () => mainWindow,
     () => sourceSelectorWindow,
+    () => getCameraPreviewWindow(),
     (recording, sourceName) => {
       selectedSourceName = sourceName;
       if (!tray) createTray();
