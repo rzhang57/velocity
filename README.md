@@ -15,7 +15,7 @@ open source screen recording built to deliver beautiful, smooth, desktop videos
     - trim your recordings
     - show/hide webcam
     - add annotations (text, arrows, images)
-- export final edit to different aspect ratios, resolutions, formats
+- export final edit to different resolutions, formats
 
 ## soon
 - automatic zoom in/out animations with option to manually edit
