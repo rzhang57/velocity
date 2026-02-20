@@ -5,10 +5,15 @@ open source screen recording built to deliver beautiful, smooth videos quickly
 - TypeScript
 - Electron
 - React
+- Rust
 
 ## current features
-- record screen (or a specific window), microphone input, and your webcam simultaneously
-- automatic zoom in/out animations created at recording time based on input telemetry
+- record screen (or a specific window), microphone input, and your webcam simultaneously, also includes:
+  - smooth custom cursor movement
+  - encoder
+  - quality preset (resolution)
+  - framerate
+  - automatic zoom in/out animations created at recording time based on input telemetry
 - built in editor allowing you to:
   - adjust automatic focus animation intensity (regeneration)
   - manually add smooth zoom in/out animations with adjustable duration, position, depth
@@ -22,8 +27,8 @@ open source screen recording built to deliver beautiful, smooth videos quickly
 
 ## soon
 - bug fixes
-- custom cursors
 - improved editor
+- custom user imported cursors
 
 ## getting started
 ```npm run dev```
