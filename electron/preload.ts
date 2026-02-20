@@ -39,6 +39,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   setHudOverlayWidth: (width: number) => {
     return ipcRenderer.invoke('set-hud-overlay-width', width)
   },
+  setHudOverlayHeight: (height: number) => {
+    return ipcRenderer.invoke('set-hud-overlay-height', height)
+  },
   selectSource: (source: any) => {
     return ipcRenderer.invoke('select-source', source)
   },

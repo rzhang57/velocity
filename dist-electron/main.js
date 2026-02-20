@@ -33,7 +33,7 @@ function createHudOverlayWindow() {
     minWidth: 500,
     maxWidth: 1100,
     minHeight: 100,
-    maxHeight: 100,
+    maxHeight: 420,
     x,
     y,
     frame: false,
@@ -625,6 +625,25 @@ function registerIpcHandlers(createEditorWindow2, createHudOverlayWindow2, creat
       y,
       width: clampedWidth,
       height: bounds.height
+    }, true);
+    return { success: true };
+  });
+  ipcMain.handle("set-hud-overlay-height", (_, height) => {
+    const mainWin = getMainWindow();
+    if (!mainWin || mainWin.isDestroyed()) {
+      return { success: false };
+    }
+    const clampedHeight = Math.max(100, Math.min(420, Math.round(height)));
+    const bounds = mainWin.getBounds();
+    const display = screen.getDisplayMatching(bounds);
+    const workArea = display.workArea;
+    const x = Math.floor(workArea.x + (workArea.width - bounds.width) / 2);
+    const y = Math.floor(workArea.y + workArea.height - clampedHeight - 5);
+    mainWin.setBounds({
+      x,
+      y,
+      width: bounds.width,
+      height: clampedHeight
     }, true);
     return { success: true };
   });

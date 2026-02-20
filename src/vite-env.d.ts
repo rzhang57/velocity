@@ -21,6 +21,12 @@ interface RecordingSession {
   cameraStartOffsetMs?: number;
   screenDurationMs: number;
   cameraDurationMs?: number;
+  requestedCaptureFps?: 60 | 120;
+  actualCaptureFps?: number;
+  requestedCaptureWidth?: number;
+  requestedCaptureHeight?: number;
+  actualCaptureWidth?: number;
+  actualCaptureHeight?: number;
   inputTelemetryPath?: string;
   inputTelemetry?: import("./types/inputTelemetry").InputTelemetryFileV1;
   autoZoomGeneratedAtMs?: number;
@@ -43,6 +49,7 @@ interface Window {
     openCameraPreviewWindow: (deviceId?: string) => Promise<{ success: boolean }>
     closeCameraPreviewWindow: () => Promise<{ success: boolean }>
     setHudOverlayWidth: (width: number) => Promise<{ success: boolean }>
+    setHudOverlayHeight: (height: number) => Promise<{ success: boolean }>
     selectSource: (source: ProcessedDesktopSource) => Promise<ProcessedDesktopSource>
     getSelectedSource: () => Promise<ProcessedDesktopSource | null>
     storeRecordedVideo: (videoData: ArrayBuffer, fileName: string) => Promise<{

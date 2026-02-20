@@ -31,7 +31,7 @@ import {
   type FigureData,
   type CameraHiddenRegion,
 } from "./types";
-import { VideoExporter, GifExporter, type ExportProgress, type ExportQuality, type ExportSettings, type ExportFormat, type GifFrameRate, type GifSizePreset, GIF_SIZE_PRESETS, calculateOutputDimensions } from "@/lib/exporter";
+import { VideoExporter, GifExporter, type ExportProgress, type ExportSettings, type ExportFormat, type GifFrameRate, type GifSizePreset, type Mp4FrameRate, type Mp4ResolutionPreset, GIF_SIZE_PRESETS, calculateOutputDimensions } from "@/lib/exporter";
 import { type AspectRatio, getAspectRatioValue } from "@/utils/aspectRatioUtils";
 import { getAssetPath } from "@/lib/assetPath";
 import type { RecordingSession } from "@/types/recordingSession";
@@ -81,7 +81,8 @@ export default function VideoEditor() {
   const [showNewRecordingDialog, setShowNewRecordingDialog] = useState(false);
   const [isStartingNewRecording, setIsStartingNewRecording] = useState(false);
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>('16:9');
-  const [exportQuality, setExportQuality] = useState<ExportQuality>('good');
+  const [mp4FrameRate, setMp4FrameRate] = useState<Mp4FrameRate>(60);
+  const [mp4Resolution, setMp4Resolution] = useState<Mp4ResolutionPreset>(1080);
   const [exportFormat, setExportFormat] = useState<ExportFormat>('mp4');
   const [gifFrameRate, setGifFrameRate] = useState<GifFrameRate>(15);
   const [gifLoop, setGifLoop] = useState(true);
@@ -732,8 +733,6 @@ export default function VideoEditor() {
       }
 
       const aspectRatioValue = getAspectRatioValue(aspectRatio);
-      const sourceWidth = video.videoWidth || 1920;
-      const sourceHeight = video.videoHeight || 1080;
 
       // Get preview CONTAINER dimensions for scaling
       const playbackRef = videoPlaybackRef.current;
@@ -798,80 +797,27 @@ export default function VideoEditor() {
         }
       } else {
         // MP4 Export
-        const quality = settings.quality || exportQuality;
+        const mp4Settings = settings.mp4Config ?? { frameRate: mp4FrameRate, resolution: mp4Resolution };
         let exportWidth: number;
         let exportHeight: number;
-        let bitrate: number;
-
-        if (quality === 'source') {
-          // Use source resolution
-          exportWidth = sourceWidth;
-          exportHeight = sourceHeight;
-
-          if (aspectRatioValue === 1) {
-            // Square (1:1): use smaller dimension to avoid codec limits
-            const baseDimension = Math.floor(Math.min(sourceWidth, sourceHeight) / 2) * 2;
-            exportWidth = baseDimension;
-            exportHeight = baseDimension;
-          } else if (aspectRatioValue > 1) {
-            // Landscape: find largest even dimensions that exactly match aspect ratio
-            const baseWidth = Math.floor(sourceWidth / 2) * 2;
-            let found = false;
-            for (let w = baseWidth; w >= 100 && !found; w -= 2) {
-              const h = Math.round(w / aspectRatioValue);
-              if (h % 2 === 0 && Math.abs((w / h) - aspectRatioValue) < 0.0001) {
-                exportWidth = w;
-                exportHeight = h;
-                found = true;
-              }
-            }
-            if (!found) {
-              exportWidth = baseWidth;
-              exportHeight = Math.floor((baseWidth / aspectRatioValue) / 2) * 2;
-            }
-          } else {
-            // Portrait: find largest even dimensions that exactly match aspect ratio
-            const baseHeight = Math.floor(sourceHeight / 2) * 2;
-            let found = false;
-            for (let h = baseHeight; h >= 100 && !found; h -= 2) {
-              const w = Math.round(h * aspectRatioValue);
-              if (w % 2 === 0 && Math.abs((w / h) - aspectRatioValue) < 0.0001) {
-                exportWidth = w;
-                exportHeight = h;
-                found = true;
-              }
-            }
-            if (!found) {
-              exportHeight = baseHeight;
-              exportWidth = Math.floor((baseHeight * aspectRatioValue) / 2) * 2;
-            }
-          }
-
-          // Calculate visually lossless bitrate matching screen recording optimization
-          const totalPixels = exportWidth * exportHeight;
-          bitrate = 30_000_000;
-          if (totalPixels > 1920 * 1080 && totalPixels <= 2560 * 1440) {
-            bitrate = 50_000_000;
-          } else if (totalPixels > 2560 * 1440) {
-            bitrate = 80_000_000;
-          }
-        } else {
-          // Use quality-based target resolution
-          const targetHeight = quality === 'medium' ? 720 : 1080;
-
-          // Calculate dimensions maintaining aspect ratio
+        const targetHeight = mp4Settings.resolution;
+        if (aspectRatioValue >= 1) {
           exportHeight = Math.floor(targetHeight / 2) * 2;
           exportWidth = Math.floor((exportHeight * aspectRatioValue) / 2) * 2;
-
-          // Adjust bitrate for lower resolutions
-          const totalPixels = exportWidth * exportHeight;
-          if (totalPixels <= 1280 * 720) {
-            bitrate = 10_000_000;
-          } else if (totalPixels <= 1920 * 1080) {
-            bitrate = 20_000_000;
-          } else {
-            bitrate = 30_000_000;
-          }
+        } else {
+          exportWidth = Math.floor(targetHeight / 2) * 2;
+          exportHeight = Math.floor((exportWidth / aspectRatioValue) / 2) * 2;
+        }
+        const totalPixels = exportWidth * exportHeight;
+        let bitrate = 20_000_000;
+        if (totalPixels <= 1280 * 720) {
+          bitrate = mp4Settings.frameRate === 120 ? 18_000_000 : mp4Settings.frameRate === 60 ? 12_000_000 : 8_000_000;
+        } else if (totalPixels <= 1920 * 1080) {
+          bitrate = mp4Settings.frameRate === 120 ? 35_000_000 : mp4Settings.frameRate === 60 ? 20_000_000 : 12_000_000;
+        } else if (totalPixels <= 2560 * 1440) {
+          bitrate = mp4Settings.frameRate === 120 ? 55_000_000 : mp4Settings.frameRate === 60 ? 32_000_000 : 20_000_000;
+        } else {
+          bitrate = mp4Settings.frameRate === 120 ? 90_000_000 : mp4Settings.frameRate === 60 ? 50_000_000 : 28_000_000;
         }
 
         const exporter = new VideoExporter({
@@ -881,7 +827,7 @@ export default function VideoEditor() {
           cameraHiddenRegions,
           width: exportWidth,
           height: exportHeight,
-          frameRate: 60,
+          frameRate: mp4Settings.frameRate,
           bitrate,
           codec: 'avc1.640033',
           wallpaper,
@@ -944,7 +890,7 @@ export default function VideoEditor() {
       setShowExportDialog(false);
       setExportProgress(null);
     }
-  }, [videoPath, cameraVideoPath, recordingSession, cameraHiddenRegions, wallpaper, zoomRegions, trimRegions, shadowIntensity, showBlur, motionBlurEnabled, cursorTrailEnabled, borderRadius, padding, cropRegion, annotationRegions, isPlaying, aspectRatio, exportQuality]);
+  }, [videoPath, cameraVideoPath, recordingSession, cameraHiddenRegions, wallpaper, zoomRegions, trimRegions, shadowIntensity, showBlur, motionBlurEnabled, cursorTrailEnabled, borderRadius, padding, cropRegion, annotationRegions, isPlaying, aspectRatio, mp4FrameRate, mp4Resolution]);
 
   const handleOpenExportDialog = useCallback(() => {
     if (!videoPath) {
@@ -965,7 +911,10 @@ export default function VideoEditor() {
 
     const settings: ExportSettings = {
       format: exportFormat,
-      quality: exportFormat === 'mp4' ? exportQuality : undefined,
+      mp4Config: exportFormat === 'mp4' ? {
+        frameRate: mp4FrameRate,
+        resolution: mp4Resolution,
+      } : undefined,
       gifConfig: exportFormat === 'gif' ? {
         frameRate: gifFrameRate,
         loop: gifLoop,
@@ -980,7 +929,7 @@ export default function VideoEditor() {
 
     // Start export immediately
     handleExport(settings);
-  }, [videoPath, exportFormat, exportQuality, gifFrameRate, gifLoop, gifSizePreset, handleExport]);
+  }, [videoPath, exportFormat, mp4FrameRate, mp4Resolution, gifFrameRate, gifLoop, gifSizePreset, handleExport]);
 
   const handleCancelExport = useCallback(() => {
     if (exporterRef.current) {
@@ -1185,8 +1134,10 @@ export default function VideoEditor() {
           onCropChange={setCropRegion}
           aspectRatio={aspectRatio}
           videoElement={videoPlaybackRef.current?.video || null}
-          exportQuality={exportQuality}
-          onExportQualityChange={setExportQuality}
+          mp4FrameRate={mp4FrameRate}
+          onMp4FrameRateChange={setMp4FrameRate}
+          mp4Resolution={mp4Resolution}
+          onMp4ResolutionChange={setMp4Resolution}
           exportFormat={exportFormat}
           onExportFormatChange={setExportFormat}
           gifFrameRate={gifFrameRate}

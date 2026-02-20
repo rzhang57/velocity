@@ -228,6 +228,28 @@ export function registerIpcHandlers(
     return { success: true }
   })
 
+  ipcMain.handle('set-hud-overlay-height', (_, height: number) => {
+    const mainWin = getMainWindow()
+    if (!mainWin || mainWin.isDestroyed()) {
+      return { success: false }
+    }
+
+    const clampedHeight = Math.max(100, Math.min(420, Math.round(height)))
+    const bounds = mainWin.getBounds()
+    const display = screen.getDisplayMatching(bounds)
+    const workArea = display.workArea
+    const x = Math.floor(workArea.x + (workArea.width - bounds.width) / 2)
+    const y = Math.floor(workArea.y + workArea.height - clampedHeight - 5)
+
+    mainWin.setBounds({
+      x,
+      y,
+      width: bounds.width,
+      height: clampedHeight,
+    }, true)
+    return { success: true }
+  })
+
   ipcMain.handle('store-recording-session', async (_, payload: {
     screenVideoData: ArrayBuffer
     screenFileName: string

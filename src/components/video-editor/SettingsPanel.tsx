@@ -14,8 +14,8 @@ import { CropControl } from "./CropControl";
 import { KeyboardShortcutsHelp } from "./KeyboardShortcutsHelp";
 import { AnnotationSettingsPanel } from "./AnnotationSettingsPanel";
 import { type AspectRatio } from "@/utils/aspectRatioUtils";
-import type { ExportQuality, ExportFormat, GifFrameRate, GifSizePreset } from "@/lib/exporter";
-import { GIF_FRAME_RATES, GIF_SIZE_PRESETS } from "@/lib/exporter";
+import type { ExportFormat, GifFrameRate, GifSizePreset, Mp4FrameRate, Mp4ResolutionPreset } from "@/lib/exporter";
+import { GIF_FRAME_RATES, GIF_SIZE_PRESETS, MP4_FRAME_RATES, MP4_RESOLUTION_PRESETS } from "@/lib/exporter";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 
 const WALLPAPER_COUNT = 18;
@@ -72,8 +72,10 @@ interface SettingsPanelProps {
   onCropChange?: (region: CropRegion) => void;
   aspectRatio: AspectRatio;
   videoElement?: HTMLVideoElement | null;
-  exportQuality?: ExportQuality;
-  onExportQualityChange?: (quality: ExportQuality) => void;
+  mp4FrameRate?: Mp4FrameRate;
+  onMp4FrameRateChange?: (rate: Mp4FrameRate) => void;
+  mp4Resolution?: Mp4ResolutionPreset;
+  onMp4ResolutionChange?: (resolution: Mp4ResolutionPreset) => void;
   // Export format settings
   exportFormat?: ExportFormat;
   onExportFormatChange?: (format: ExportFormat) => void;
@@ -122,8 +124,10 @@ export function SettingsPanel({
   onCropChange, 
   aspectRatio, 
   videoElement, 
-  exportQuality = 'good',
-  onExportQualityChange,
+  mp4FrameRate = 60,
+  onMp4FrameRateChange,
+  mp4Resolution = 1080,
+  onMp4ResolutionChange,
   exportFormat = 'mp4',
   onExportFormatChange,
   gifFrameRate = 15,
@@ -602,34 +606,35 @@ export function SettingsPanel({
         </div>
 
         {exportFormat === 'mp4' && (
-          <div className="mb-3 bg-white/5 border border-white/5 p-0.5 w-full grid grid-cols-3 h-7 rounded-lg">
-            <button
-              onClick={() => onExportQualityChange?.('medium')}
-              className={cn(
-                "rounded-md transition-all text-[10px] font-medium",
-                exportQuality === 'medium' ? "bg-white text-black" : "text-slate-400 hover:text-slate-200"
-              )}
-            >
-              Low
-            </button>
-            <button
-              onClick={() => onExportQualityChange?.('good')}
-              className={cn(
-                "rounded-md transition-all text-[10px] font-medium",
-                exportQuality === 'good' ? "bg-white text-black" : "text-slate-400 hover:text-slate-200"
-              )}
-            >
-              Medium
-            </button>
-            <button
-              onClick={() => onExportQualityChange?.('source')}
-              className={cn(
-                "rounded-md transition-all text-[10px] font-medium",
-                exportQuality === 'source' ? "bg-white text-black" : "text-slate-400 hover:text-slate-200"
-              )}
-            >
-              High
-            </button>
+          <div className="mb-3 space-y-2">
+            <div className="bg-white/5 border border-white/5 p-0.5 w-full grid grid-cols-4 h-7 rounded-lg">
+              {MP4_RESOLUTION_PRESETS.map((preset) => (
+                <button
+                  key={preset.value}
+                  onClick={() => onMp4ResolutionChange?.(preset.value)}
+                  className={cn(
+                    "rounded-md transition-all text-[10px] font-medium",
+                    mp4Resolution === preset.value ? "bg-white text-black" : "text-slate-400 hover:text-slate-200"
+                  )}
+                >
+                  {preset.label}
+                </button>
+              ))}
+            </div>
+            <div className="bg-white/5 border border-white/5 p-0.5 w-full grid grid-cols-3 h-7 rounded-lg">
+              {MP4_FRAME_RATES.map((rate) => (
+                <button
+                  key={rate.value}
+                  onClick={() => onMp4FrameRateChange?.(rate.value)}
+                  className={cn(
+                    "rounded-md transition-all text-[10px] font-medium",
+                    mp4FrameRate === rate.value ? "bg-white text-black" : "text-slate-400 hover:text-slate-200"
+                  )}
+                >
+                  {rate.value}
+                </button>
+              ))}
+            </div>
           </div>
         )}
 
@@ -651,7 +656,7 @@ export function SettingsPanel({
                 ))}
               </div>
               <div className="flex-1 bg-white/5 border border-white/5 p-0.5 grid grid-cols-3 h-7 rounded-lg">
-                {Object.entries(GIF_SIZE_PRESETS).map(([key, _preset]) => (
+                {Object.entries(GIF_SIZE_PRESETS).map(([key]) => (
                   <button
                     key={key}
                     onClick={() => onGifSizePresetChange?.(key as GifSizePreset)}

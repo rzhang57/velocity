@@ -12,6 +12,12 @@ export interface RecordingSession {
   cameraStartOffsetMs?: number;
   screenDurationMs: number;
   cameraDurationMs?: number;
+  requestedCaptureFps?: 60 | 120;
+  actualCaptureFps?: number;
+  requestedCaptureWidth?: number;
+  requestedCaptureHeight?: number;
+  actualCaptureWidth?: number;
+  actualCaptureHeight?: number;
   inputTelemetryPath?: string;
   inputTelemetry?: InputTelemetryFileV1;
   autoZoomGeneratedAtMs?: number;

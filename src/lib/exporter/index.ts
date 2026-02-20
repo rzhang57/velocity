@@ -11,12 +11,16 @@ export type {
   VideoFrameData, 
   ExportQuality,
   ExportFormat,
+  Mp4FrameRate,
+  Mp4ResolutionPreset,
   GifFrameRate,
   GifSizePreset,
   GifExportConfig,
   ExportSettings,
 } from './types';
 export { 
+  MP4_FRAME_RATES,
+  MP4_RESOLUTION_PRESETS,
   GIF_SIZE_PRESETS, 
   GIF_FRAME_RATES, 
   VALID_GIF_FRAME_RATES, 

@@ -38,7 +38,7 @@ export function createHudOverlayWindow(): BrowserWindow {
     minWidth: 500,
     maxWidth: 1100,
     minHeight: 100,
-    maxHeight: 100,
+    maxHeight: 420,
     x: x,
     y: y,
     frame: false,

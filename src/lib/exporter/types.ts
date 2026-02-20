@@ -31,6 +31,8 @@ export type ExportQuality = 'medium' | 'good' | 'source';
 
 // GIF Export Types
 export type ExportFormat = 'mp4' | 'gif';
+export type Mp4FrameRate = 30 | 60 | 120;
+export type Mp4ResolutionPreset = 720 | 1080 | 1440 | 2160;
 
 export type GifFrameRate = 15 | 20 | 25 | 30;
 
@@ -46,8 +48,13 @@ export interface GifExportConfig {
 
 export interface ExportSettings {
   format: ExportFormat;
-  // MP4 settings
+  // Legacy MP4 quality setting (kept for backward compatibility).
   quality?: ExportQuality;
+  // MP4 settings
+  mp4Config?: {
+    frameRate: Mp4FrameRate;
+    resolution: Mp4ResolutionPreset;
+  };
   // GIF settings
   gifConfig?: GifExportConfig;
 }
@@ -67,6 +74,17 @@ export const GIF_FRAME_RATES: { value: GifFrameRate; label: string }[] = [
 
 // Valid frame rates for validation
 export const VALID_GIF_FRAME_RATES: readonly GifFrameRate[] = [15, 20, 25, 30] as const;
+export const MP4_FRAME_RATES: { value: Mp4FrameRate; label: string }[] = [
+  { value: 30, label: '30 FPS' },
+  { value: 60, label: '60 FPS' },
+  { value: 120, label: '120 FPS' },
+];
+export const MP4_RESOLUTION_PRESETS: { value: Mp4ResolutionPreset; label: string }[] = [
+  { value: 720, label: '720p' },
+  { value: 1080, label: '1080p' },
+  { value: 1440, label: '1440p' },
+  { value: 2160, label: '2160p' },
+];
 
 export function isValidGifFrameRate(rate: number): rate is GifFrameRate {
   return VALID_GIF_FRAME_RATES.includes(rate as GifFrameRate);

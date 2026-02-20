@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import styles from "./LaunchWindow.module.css";
-import { useScreenRecorder } from "../../hooks/useScreenRecorder";
+import { useScreenRecorder, type RecordingPreset, type RecordingFps } from "../../hooks/useScreenRecorder";
 import { Button } from "../ui/button";
 import { BsRecordCircle } from "react-icons/bs";
 import { FaFolder, FaRegStopCircle } from "react-icons/fa";
@@ -8,7 +8,11 @@ import { MdMonitor } from "react-icons/md";
 import { RxDragHandleDots2 } from "react-icons/rx";
 import { FiMinus, FiX } from "react-icons/fi";
 import { ContentClamp } from "../ui/content-clamp";
-import { Mic, MicOff, Camera, CameraOff, Eye, EyeOff } from "lucide-react";
+import { Mic, MicOff, Camera, CameraOff, Eye, EyeOff, EllipsisVertical } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
+
+const RECORDING_PRESET_STORAGE_KEY = "openscreen.recordingPreset";
+const RECORDING_FPS_STORAGE_KEY = "openscreen.recordingFps";
 
 export function LaunchWindow() {
   const { recording, toggleRecording } = useScreenRecorder();
@@ -25,7 +29,29 @@ export function LaunchWindow() {
   const [cameraPreviewEnabled, setCameraPreviewEnabled] = useState(true);
   const [cameraDevices, setCameraDevices] = useState<MediaDeviceInfo[]>([]);
   const [selectedCameraDeviceId, setSelectedCameraDeviceId] = useState<string>("");
+  const [recordingPreset, setRecordingPreset] = useState<RecordingPreset>("quality");
+  const [recordingFps, setRecordingFps] = useState<RecordingFps>(60);
+  const [recordingSettingsOpen, setRecordingSettingsOpen] = useState(false);
   const hudRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const storedPreset = localStorage.getItem(RECORDING_PRESET_STORAGE_KEY);
+    const storedFps = localStorage.getItem(RECORDING_FPS_STORAGE_KEY);
+    if (storedPreset === "performance" || storedPreset === "balanced" || storedPreset === "quality") {
+      setRecordingPreset(storedPreset);
+    }
+    if (storedFps === "60" || storedFps === "120") {
+      setRecordingFps(Number(storedFps) as RecordingFps);
+    }
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem(RECORDING_PRESET_STORAGE_KEY, recordingPreset);
+  }, [recordingPreset]);
+
+  useEffect(() => {
+    localStorage.setItem(RECORDING_FPS_STORAGE_KEY, String(recordingFps));
+  }, [recordingFps]);
 
   useEffect(() => {
     let timer: NodeJS.Timeout | null = null;
@@ -95,7 +121,21 @@ export function LaunchWindow() {
     if (!el) return;
     const measuredWidth = Math.ceil(el.scrollWidth + 2);
     window.electronAPI?.setHudOverlayWidth(measuredWidth).catch(() => {});
-  }, [cameraEnabled, micEnabled, selectedMicDeviceId, selectedCameraDeviceId, micProcessingMode, selectedSource, recording]);
+  }, [cameraEnabled, micEnabled, selectedMicDeviceId, selectedCameraDeviceId, micProcessingMode, selectedSource, recording, recordingPreset, recordingFps]);
+
+  useEffect(() => {
+    const targetHeight = recordingSettingsOpen ? 280 : 100;
+    window.electronAPI?.setHudOverlayHeight(targetHeight).catch(() => {});
+    return () => {
+      window.electronAPI?.setHudOverlayHeight(100).catch(() => {});
+    };
+  }, [recordingSettingsOpen]);
+
+  useEffect(() => {
+    if (recording && recordingSettingsOpen) {
+      setRecordingSettingsOpen(false);
+    }
+  }, [recording, recordingSettingsOpen]);
 
   useEffect(() => {
     let stream: MediaStream | null = null;
@@ -263,6 +303,8 @@ export function LaunchWindow() {
                       micProcessingMode,
                       cameraEnabled,
                       cameraDeviceId: selectedCameraDeviceId || undefined,
+                      recordingPreset,
+                      recordingFps,
                     })
                 : openSourceSelector
             }
@@ -281,6 +323,92 @@ export function LaunchWindow() {
               </>
             )}
           </Button>
+          <Popover open={recordingSettingsOpen} onOpenChange={setRecordingSettingsOpen}>
+            <PopoverTrigger asChild>
+              <Button
+                variant="link"
+                size="sm"
+                disabled={recording}
+                className="h-7 w-7 min-w-7 p-0 text-white bg-white/[0.08] hover:bg-white/[0.14] border border-white/[0.2] rounded-md"
+                title="Recording settings"
+              >
+                <EllipsisVertical size={14} className={hasSelectedSource ? "text-white" : "text-white/70"} />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="end" side="bottom" className="w-[280px] p-3 bg-[#0f1012] border border-white/10 rounded-xl shadow-xl">
+              <div className="space-y-3">
+                <div>
+                  <div className="text-xs font-semibold text-slate-200">Recording Settings</div>
+                  <div className="text-[10px] text-slate-400">Configure capture quality and smoothness.</div>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] uppercase tracking-wider text-slate-500">Preset</label>
+                  <div className="grid grid-cols-3 gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setRecordingPreset("performance")}
+                      className={`h-7 rounded-md text-[10px] font-medium border ${
+                        recordingPreset === "performance"
+                          ? "bg-white text-black border-white"
+                          : "bg-white/5 text-slate-300 border-white/10 hover:bg-white/10"
+                      }`}
+                    >
+                      Performance
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setRecordingPreset("balanced")}
+                      className={`h-7 rounded-md text-[10px] font-medium border ${
+                        recordingPreset === "balanced"
+                          ? "bg-white text-black border-white"
+                          : "bg-white/5 text-slate-300 border-white/10 hover:bg-white/10"
+                      }`}
+                    >
+                      Balanced
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setRecordingPreset("quality")}
+                      className={`h-7 rounded-md text-[10px] font-medium border ${
+                        recordingPreset === "quality"
+                          ? "bg-white text-black border-white"
+                          : "bg-white/5 text-slate-300 border-white/10 hover:bg-white/10"
+                      }`}
+                    >
+                      Quality
+                    </button>
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] uppercase tracking-wider text-slate-500">FPS</label>
+                  <div className="grid grid-cols-2 gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setRecordingFps(60)}
+                      className={`h-7 rounded-md text-[10px] font-medium border ${
+                        recordingFps === 60
+                          ? "bg-white text-black border-white"
+                          : "bg-white/5 text-slate-300 border-white/10 hover:bg-white/10"
+                      }`}
+                    >
+                      60 FPS
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setRecordingFps(120)}
+                      className={`h-7 rounded-md text-[10px] font-medium border ${
+                        recordingFps === 120
+                          ? "bg-white text-black border-white"
+                          : "bg-white/5 text-slate-300 border-white/10 hover:bg-white/10"
+                      }`}
+                    >
+                      120 FPS
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </PopoverContent>
+          </Popover>
         </div>
 
         <div className="w-px h-5 bg-white/12" />

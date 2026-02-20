@@ -9,7 +9,18 @@ export interface RecorderOptions {
   cameraEnabled: boolean;
   cameraDeviceId?: string;
   cameraPreviewStream?: MediaStream | null;
+  recordingPreset?: RecordingPreset;
+  recordingFps?: RecordingFps;
 }
+
+export type RecordingPreset = "performance" | "balanced" | "quality";
+export type RecordingFps = 60 | 120;
+
+type CaptureProfile = {
+  width: number;
+  height: number;
+  fps: RecordingFps;
+};
 
 type UseScreenRecorderReturn = {
   recording: boolean;
@@ -29,10 +40,22 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
   const sessionIdRef = useRef<string>("");
   const cameraStartTime = useRef<number | null>(null);
 
-  const TARGET_FRAME_RATE = 60;
-  const TARGET_WIDTH = 3840;
-  const TARGET_HEIGHT = 2160;
-  const FOUR_K_PIXELS = TARGET_WIDTH * TARGET_HEIGHT;
+  const getCaptureProfile = (options: RecorderOptions): CaptureProfile => {
+    const preset = options.recordingPreset ?? "quality";
+    const fps = options.recordingFps ?? 60;
+    const dimensionsByPreset: Record<RecordingPreset, { width: number; height: number }> = {
+      performance: { width: 1920, height: 1080 },
+      balanced: { width: 2560, height: 1440 },
+      quality: { width: 3840, height: 2160 },
+    };
+    const dimensions = dimensionsByPreset[preset];
+
+    return {
+      width: dimensions.width,
+      height: dimensions.height,
+      fps,
+    };
+  };
 
   const selectMimeType = () => {
     const preferred = [
@@ -46,19 +69,15 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
     return preferred.find(type => MediaRecorder.isTypeSupported(type)) ?? "video/webm";
   };
 
-  const computeBitrate = (width: number, height: number) => {
+  const computeBitrate = (width: number, height: number, fps: RecordingFps) => {
     const pixels = width * height;
-    const highFrameRateBoost = TARGET_FRAME_RATE >= 60 ? 1.7 : 1;
-
-    if (pixels >= FOUR_K_PIXELS) {
-      return Math.round(45_000_000 * highFrameRateBoost);
+    if (pixels >= 3840 * 2160) {
+      return fps === 120 ? 95_000_000 : 60_000_000;
     }
-
     if (pixels >= 2560 * 1440) {
-      return Math.round(28_000_000 * highFrameRateBoost);
+      return fps === 120 ? 70_000_000 : 42_000_000;
     }
-
-    return Math.round(18_000_000 * highFrameRateBoost);
+    return fps === 120 ? 40_000_000 : 24_000_000;
   };
 
   const stopAllTracks = () => {
@@ -118,6 +137,7 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 
   const startRecording = async (options: RecorderOptions) => {
     try {
+      const captureProfile = getCaptureProfile(options);
       const selectedSource = await window.electronAPI.getSelectedSource();
       if (!selectedSource) {
         alert("Please select a source to record");
@@ -158,9 +178,9 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
           mandatory: {
             chromeMediaSource: "desktop",
             chromeMediaSourceId: selectedSource.id,
-            maxWidth: TARGET_WIDTH,
-            maxHeight: TARGET_HEIGHT,
-            maxFrameRate: TARGET_FRAME_RATE,
+            maxWidth: captureProfile.width,
+            maxHeight: captureProfile.height,
+            maxFrameRate: captureProfile.fps,
             minFrameRate: 30,
           },
         },
@@ -230,19 +250,31 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
       const videoTrack = stream.current.getVideoTracks()[0];
       try {
         await videoTrack.applyConstraints({
-          frameRate: { ideal: TARGET_FRAME_RATE, max: TARGET_FRAME_RATE },
-          width: { ideal: TARGET_WIDTH, max: TARGET_WIDTH },
-          height: { ideal: TARGET_HEIGHT, max: TARGET_HEIGHT },
+          frameRate: { ideal: captureProfile.fps, max: captureProfile.fps },
+          width: { ideal: captureProfile.width, max: captureProfile.width },
+          height: { ideal: captureProfile.height, max: captureProfile.height },
         });
       } catch (error) {
-        console.warn("Unable to lock 4K/60fps constraints, using best available track settings.", error);
+        console.warn("Unable to lock requested capture constraints, using best available track settings.", error);
       }
 
+      const { frameRate } = videoTrack.getSettings();
       let { width = 1920, height = 1080 } = videoTrack.getSettings();
       width = Math.floor(width / 2) * 2;
       height = Math.floor(height / 2) * 2;
 
-      const videoBitsPerSecond = computeBitrate(width, height);
+      const actualCaptureFps = typeof frameRate === "number" ? Math.round(frameRate) : undefined;
+      if (actualCaptureFps && actualCaptureFps < captureProfile.fps) {
+        console.warn("Capture FPS is below requested target", {
+          requestedFps: captureProfile.fps,
+          actualFps: actualCaptureFps,
+          requestedWidth: captureProfile.width,
+          requestedHeight: captureProfile.height,
+          actualWidth: width,
+          actualHeight: height,
+        });
+      }
+      const videoBitsPerSecond = computeBitrate(width, height, captureProfile.fps);
       const mimeType = selectMimeType();
 
       chunks.current = [];
@@ -263,7 +295,7 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
         const camHeight = Math.floor((cameraTrackSettings?.height || 720) / 2) * 2;
         const camRecorder = new MediaRecorder(cameraStream.current, {
           mimeType,
-          videoBitsPerSecond: computeBitrate(camWidth, camHeight),
+          videoBitsPerSecond: computeBitrate(camWidth, camHeight, 60),
         });
         cameraRecorder.current = camRecorder;
         camRecorder.ondataavailable = e => {
@@ -366,6 +398,12 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
               cameraDurationMs: cameraBlob && cameraStartTime.current
                 ? Math.max(0, Date.now() - cameraStartTime.current)
                 : undefined,
+              requestedCaptureFps: captureProfile.fps,
+              actualCaptureFps,
+              requestedCaptureWidth: captureProfile.width,
+              requestedCaptureHeight: captureProfile.height,
+              actualCaptureWidth: width,
+              actualCaptureHeight: height,
               autoZoomGeneratedAtMs: undefined,
               autoZoomAlgorithmVersion: undefined,
             },
@@ -427,6 +465,8 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
       micEnabled: true,
       micProcessingMode: "cleaned",
       cameraEnabled: false,
+      recordingPreset: "quality",
+      recordingFps: 60,
     };
     startRecording(resolvedOptions);
   };

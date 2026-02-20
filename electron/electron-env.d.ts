@@ -38,6 +38,7 @@ interface Window {
     openCameraPreviewWindow: (deviceId?: string) => Promise<{ success: boolean }>
     closeCameraPreviewWindow: () => Promise<{ success: boolean }>
     setHudOverlayWidth: (width: number) => Promise<{ success: boolean }>
+    setHudOverlayHeight: (height: number) => Promise<{ success: boolean }>
     selectSource: (source: ProcessedDesktopSource) => Promise<ProcessedDesktopSource>
     getSelectedSource: () => Promise<ProcessedDesktopSource | null>
     storeRecordedVideo: (videoData: ArrayBuffer, fileName: string) => Promise<{ success: boolean; path?: string; message?: string }>
