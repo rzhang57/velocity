@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { fixWebmDuration } from "@fix-webm-duration/fix";
+import type { InputTelemetryFileV1 } from "@/types/inputTelemetry";
 
 export interface RecorderOptions {
   micEnabled: boolean;
@@ -25,6 +26,7 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
   const chunks = useRef<Blob[]>([]);
   const cameraChunks = useRef<Blob[]>([]);
   const startTime = useRef<number>(0);
+  const sessionIdRef = useRef<string>("");
   const cameraStartTime = useRef<number | null>(null);
 
   const TARGET_FRAME_RATE = 60;
@@ -120,6 +122,34 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
       if (!selectedSource) {
         alert("Please select a source to record");
         return;
+      }
+
+      const recordingStartedAtMs = Date.now();
+      startTime.current = recordingStartedAtMs;
+      sessionIdRef.current = `session-${recordingStartedAtMs}`;
+      const sourceId = typeof selectedSource.id === "string" ? selectedSource.id : undefined;
+      const sourceDisplayId = typeof selectedSource.display_id === "string" ? selectedSource.display_id : undefined;
+      console.info("[auto-zoom][telemetry] Starting input tracking", {
+        sessionId: sessionIdRef.current,
+        startedAtMs: recordingStartedAtMs,
+        sourceId,
+        sourceDisplayId,
+      });
+      const trackingStartResult = await window.electronAPI.startInputTracking({
+        sessionId: sessionIdRef.current,
+        startedAtMs: recordingStartedAtMs,
+        sourceId,
+        sourceDisplayId,
+      });
+      if (trackingStartResult.success) {
+        console.info("[auto-zoom][telemetry] Input tracking started successfully", {
+          sessionId: sessionIdRef.current,
+        });
+      } else {
+        console.warn("[auto-zoom][telemetry] Input tracking did not start", {
+          sessionId: sessionIdRef.current,
+          message: trackingStartResult.message,
+        });
       }
 
       const mediaStream = await (navigator.mediaDevices as any).getUserMedia({
@@ -269,6 +299,36 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
         stream.current = null;
         micStream.current = null;
         cameraStream.current = null;
+        let inputTelemetry: InputTelemetryFileV1 | undefined;
+        try {
+          console.info("[auto-zoom][telemetry] Stopping input tracking", {
+            sessionId: sessionIdRef.current,
+          });
+          const trackingResult = await window.electronAPI.stopInputTracking();
+          if (trackingResult.success && trackingResult.telemetry) {
+            if (trackingResult.telemetry.stats.totalEvents > 0) {
+              inputTelemetry = trackingResult.telemetry;
+              console.info("[auto-zoom][telemetry] Input telemetry captured", {
+                sessionId: sessionIdRef.current,
+                totalEvents: inputTelemetry.stats.totalEvents,
+                mouseDownCount: inputTelemetry.stats.mouseDownCount,
+                keyDownCount: inputTelemetry.stats.keyDownCount,
+                wheelCount: inputTelemetry.stats.wheelCount,
+              });
+            } else {
+              console.warn("[auto-zoom][telemetry] Tracking returned empty telemetry; treating as unavailable", {
+                sessionId: sessionIdRef.current,
+              });
+            }
+          } else {
+            console.warn("[auto-zoom][telemetry] Input tracking stop returned no telemetry", {
+              sessionId: sessionIdRef.current,
+              message: trackingResult.message,
+            });
+          }
+        } catch (error) {
+          console.error("[auto-zoom][telemetry] Failed to stop input tracking; continuing without telemetry", error);
+        }
         if (chunks.current.length === 0) return;
         const duration = Date.now() - startTime.current;
         const screenBlob = new Blob(chunks.current, { type: mimeType });
@@ -279,6 +339,7 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
           const cameraBlob = await cameraStopPromise;
           const timestamp = Date.now();
           const screenFileName = `recording-${timestamp}.webm`;
+          const inputTelemetryFileName = `recording-${timestamp}.telemetry.json`;
           const cameraFileName = cameraBlob ? `recording-camera-${timestamp}.webm` : undefined;
           const cameraStartOffsetMs = cameraStartTime.current
             ? Math.max(0, cameraStartTime.current - startTime.current)
@@ -289,8 +350,10 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
             screenFileName,
             cameraVideoData: cameraBlob ? await cameraBlob.arrayBuffer() : undefined,
             cameraFileName,
+            inputTelemetry,
+            inputTelemetryFileName: inputTelemetry ? inputTelemetryFileName : undefined,
             session: {
-              id: `session-${timestamp}`,
+              id: sessionIdRef.current || `session-${timestamp}`,
               startedAtMs: startTime.current,
               micEnabled: options.micEnabled,
               micDeviceId: options.micDeviceId,
@@ -303,31 +366,54 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
               cameraDurationMs: cameraBlob && cameraStartTime.current
                 ? Math.max(0, Date.now() - cameraStartTime.current)
                 : undefined,
+              autoZoomGeneratedAtMs: undefined,
+              autoZoomAlgorithmVersion: undefined,
             },
           };
 
+          if (inputTelemetry) {
+            console.info("[auto-zoom][telemetry] Persisting telemetry sidecar with recording session", {
+              sessionId: sessionIdRef.current,
+              inputTelemetryFileName,
+              totalEvents: inputTelemetry.stats.totalEvents,
+            });
+          } else {
+            console.warn("[auto-zoom][telemetry] No telemetry available for this recording session", {
+              sessionId: sessionIdRef.current,
+            });
+          }
+
           const result = await window.electronAPI.storeRecordingSession(sessionPayload);
           if (!result.success || !result.session) {
-            console.error("Failed to store recording session:", result.message);
+            console.error("[auto-zoom][telemetry] Failed to store recording session", {
+              sessionId: sessionIdRef.current,
+              message: result.message,
+            });
             return;
           }
+          console.info("[auto-zoom][telemetry] Recording session stored", {
+            sessionId: sessionIdRef.current,
+            hasTelemetry: Boolean(inputTelemetry),
+          });
 
           await window.electronAPI.setCurrentRecordingSession(result.session);
           await window.electronAPI.switchToEditor();
         } catch (error) {
-          console.error("Error saving recording session:", error);
+          console.error("[auto-zoom][telemetry] Error while saving recording session", error);
         }
       };
 
       screenRecorder.onerror = () => setRecording(false);
       screenRecorder.start(1000);
-      startTime.current = Date.now();
       setRecording(true);
       window.electronAPI?.setRecordingState(true);
     } catch (error) {
-      console.error("Failed to start recording:", error);
+      console.error("[auto-zoom][telemetry] Failed to start recording", error);
       setRecording(false);
       stopAllTracks();
+      window.electronAPI?.stopInputTracking().catch((trackingError) => {
+        console.warn("[auto-zoom][telemetry] Cleanup stopInputTracking failed", trackingError);
+      });
     }
   };
 

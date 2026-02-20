@@ -3,6 +3,7 @@ import type { ExportProgress, ExportResult, GifFrameRate, GifSizePreset, GIF_SIZ
 import { StreamingVideoDecoder } from './streamingDecoder';
 import { FrameRenderer } from './frameRenderer';
 import type { ZoomRegion, CropRegion, TrimRegion, AnnotationRegion, CameraHiddenRegion } from '@/components/video-editor/types';
+import type { InputTelemetryFileV1 } from '@/types/inputTelemetry';
 
 const GIF_WORKER_URL = new URL('gif.js/dist/gif.worker.js', import.meta.url).toString();
 
@@ -23,6 +24,8 @@ interface GifExporterConfig {
   shadowIntensity: number;
   showBlur: boolean;
   motionBlurEnabled?: boolean;
+  cursorTrailEnabled?: boolean;
+  inputTelemetry?: InputTelemetryFileV1;
   borderRadius?: number;
   padding?: number;
   videoPadding?: number;
@@ -100,6 +103,8 @@ export class GifExporter {
         shadowIntensity: this.config.shadowIntensity,
         showBlur: this.config.showBlur,
         motionBlurEnabled: this.config.motionBlurEnabled,
+        cursorTrailEnabled: this.config.cursorTrailEnabled,
+        inputTelemetry: this.config.inputTelemetry,
         borderRadius: this.config.borderRadius,
         padding: this.config.padding,
         cropRegion: this.config.cropRegion,

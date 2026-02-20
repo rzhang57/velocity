@@ -9,7 +9,7 @@ import { useState } from "react";
 import Block from '@uiw/react-color-block';
 import { Trash2, Download, Crop, X, Bug, Upload, Star, Film, Image, Sparkles, Palette } from "lucide-react";
 import { toast } from "sonner";
-import type { ZoomDepth, CropRegion, AnnotationRegion, AnnotationType } from "./types";
+import { getZoomScale, ZOOM_DEPTH_MAX, ZOOM_DEPTH_MIN, ZOOM_DEPTH_STEP, type ZoomDepth, type CropRegion, type AnnotationRegion, type AnnotationType } from "./types";
 import { CropControl } from "./CropControl";
 import { KeyboardShortcutsHelp } from "./KeyboardShortcutsHelp";
 import { AnnotationSettingsPanel } from "./AnnotationSettingsPanel";
@@ -62,6 +62,8 @@ interface SettingsPanelProps {
   onBlurChange?: (showBlur: boolean) => void;
   motionBlurEnabled?: boolean;
   onMotionBlurChange?: (enabled: boolean) => void;
+  cursorTrailEnabled?: boolean;
+  onCursorTrailChange?: (enabled: boolean) => void;
   borderRadius?: number;
   onBorderRadiusChange?: (radius: number) => void;
   padding?: number;
@@ -94,14 +96,6 @@ interface SettingsPanelProps {
 
 export default SettingsPanel;
 
-const ZOOM_DEPTH_OPTIONS: Array<{ depth: ZoomDepth; label: string }> = [
-  { depth: 1, label: "1.25×" },
-  { depth: 2, label: "1.5×" },
-  { depth: 3, label: "1.8×" },
-  { depth: 4, label: "2.2×" },
-  { depth: 5, label: "3.5×" },
-  { depth: 6, label: "5×" },
-];
 
 export function SettingsPanel({ 
   selected, 
@@ -118,6 +112,8 @@ export function SettingsPanel({
   onBlurChange, 
   motionBlurEnabled = false,
   onMotionBlurChange, 
+  cursorTrailEnabled = false,
+  onCursorTrailChange,
   borderRadius = 0, 
   onBorderRadiusChange, 
   padding = 50, 
@@ -172,7 +168,7 @@ export function SettingsPanel({
   const [gradient, setGradient] = useState<string>(GRADIENTS[0]);
   const [showCropDropdown, setShowCropDropdown] = useState(false);
 
-  const zoomEnabled = Boolean(selectedZoomDepth);
+  const zoomEnabled = selectedZoomDepth != null;
   const trimEnabled = Boolean(selectedTrimId);
   
   const handleDeleteClick = () => {
@@ -260,36 +256,29 @@ export function SettingsPanel({
           <div className="flex items-center justify-between mb-3">
             <span className="text-sm font-medium text-slate-200">Zoom Level</span>
             <div className="flex items-center gap-2">
-              {zoomEnabled && selectedZoomDepth && (
+              {zoomEnabled && selectedZoomDepth != null && (
                 <span className="text-[10px] uppercase tracking-wider font-medium text-[#34B27B] bg-[#34B27B]/10 px-2 py-0.5 rounded-full">
-                  {ZOOM_DEPTH_OPTIONS.find(o => o.depth === selectedZoomDepth)?.label}
+                  {getZoomScale(selectedZoomDepth).toFixed(2)}x
                 </span>
               )}
               <KeyboardShortcutsHelp />
             </div>
           </div>
-          <div className="grid grid-cols-6 gap-1.5">
-            {ZOOM_DEPTH_OPTIONS.map((option) => {
-              const isActive = selectedZoomDepth === option.depth;
-              return (
-                <Button
-                  key={option.depth}
-                  type="button"
-                  disabled={!zoomEnabled}
-                  onClick={() => onZoomDepthChange?.(option.depth)}
-                  className={cn(
-                    "h-auto w-full rounded-lg border px-1 py-2 text-center shadow-sm transition-all",
-                    "duration-200 ease-out",
-                    zoomEnabled ? "opacity-100 cursor-pointer" : "opacity-40 cursor-not-allowed",
-                    isActive
-                      ? "border-[#34B27B] bg-[#34B27B] text-white shadow-[#34B27B]/20"
-                      : "border-white/5 bg-white/5 text-slate-400 hover:bg-white/10 hover:border-white/10 hover:text-slate-200"
-                  )}
-                >
-                  <span className="text-xs font-semibold">{option.label}</span>
-                </Button>
-              );
-            })}
+          <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-3">
+            <Slider
+              value={[selectedZoomDepth ?? 3]}
+              onValueChange={(values) => onZoomDepthChange?.(values[0] as ZoomDepth)}
+              min={ZOOM_DEPTH_MIN}
+              max={ZOOM_DEPTH_MAX}
+              step={ZOOM_DEPTH_STEP}
+              disabled={!zoomEnabled}
+              className="w-full [&_[role=slider]]:bg-[#34B27B] [&_[role=slider]]:border-[#34B27B]"
+            />
+            <div className="mt-2 flex justify-between text-[10px] text-slate-500">
+              <span>Min</span>
+              <span>{zoomEnabled && selectedZoomDepth != null ? `${selectedZoomDepth.toFixed(1)} depth` : "Select zoom"}</span>
+              <span>Max</span>
+            </div>
           </div>
           {!zoomEnabled && (
             <p className="text-[10px] text-slate-500 mt-2 text-center">Select a zoom region to adjust</p>
@@ -344,6 +333,14 @@ export function SettingsPanel({
                   <Switch
                     checked={showBlur}
                     onCheckedChange={onBlurChange}
+                    className="data-[state=checked]:bg-[#34B27B] scale-90"
+                  />
+                </div>
+                <div className="flex items-center justify-between p-2 rounded-lg bg-white/5 border border-white/5">
+                  <div className="text-[10px] font-medium text-slate-300">Cursor Trail</div>
+                  <Switch
+                    checked={cursorTrailEnabled}
+                    onCheckedChange={onCursorTrailChange}
                     className="data-[state=checked]:bg-[#34B27B] scale-90"
                   />
                 </div>

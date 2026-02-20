@@ -1,3 +1,5 @@
+import type { InputTelemetryFileV1 } from "./inputTelemetry";
+
 export interface RecordingSession {
   id: string;
   startedAtMs: number;
@@ -10,6 +12,10 @@ export interface RecordingSession {
   cameraStartOffsetMs?: number;
   screenDurationMs: number;
   cameraDurationMs?: number;
+  inputTelemetryPath?: string;
+  inputTelemetry?: InputTelemetryFileV1;
+  autoZoomGeneratedAtMs?: number;
+  autoZoomAlgorithmVersion?: string;
 }
 
 export interface CameraHiddenRegion {

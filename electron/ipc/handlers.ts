@@ -3,13 +3,48 @@ import { ipcMain, desktopCapturer, BrowserWindow, shell, app, dialog, screen } f
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { RECORDINGS_DIR } from '../main'
+import { InputTrackingService } from '../services/inputTrackingService'
+import type { InputTelemetryFileV1 } from '@/types/inputTelemetry'
 
 let selectedSource: any = null
 let currentVideoPath: string | null = null
 let currentRecordingSession: any = null
+const inputTrackingService = new InputTrackingService()
+
+function getTelemetryFilePath(videoPath: string) {
+  const parsed = path.parse(videoPath)
+  return path.join(parsed.dir, `${parsed.name}.telemetry.json`)
+}
+
+async function loadTelemetryForVideo(videoPath: string): Promise<{ path: string; telemetry: InputTelemetryFileV1 } | null> {
+  const telemetryPath = getTelemetryFilePath(videoPath)
+  try {
+    const raw = await fs.readFile(telemetryPath, 'utf-8')
+    const parsed = JSON.parse(raw) as InputTelemetryFileV1
+    if (parsed && parsed.version === 1 && Array.isArray(parsed.events)) {
+      console.info('[auto-zoom][main] Telemetry sidecar loaded', {
+        telemetryPath,
+        sessionId: parsed.sessionId,
+        totalEvents: parsed.stats?.totalEvents ?? 0,
+      })
+      return { path: telemetryPath, telemetry: parsed }
+    }
+    console.warn('[auto-zoom][main] Telemetry sidecar was present but invalid format', {
+      telemetryPath,
+    })
+  } catch {
+    console.info('[auto-zoom][main] No telemetry sidecar found for video', {
+      videoPath,
+      telemetryPath,
+    })
+  }
+
+  return null
+}
 
 export function registerIpcHandlers(
   createEditorWindow: () => void,
+  createHudOverlayWindow: () => void,
   createSourceSelectorWindow: () => BrowserWindow,
   createCameraPreviewWindow: (deviceId?: string) => BrowserWindow,
   closeCameraPreviewWindow: () => void,
@@ -18,6 +53,16 @@ export function registerIpcHandlers(
   getCameraPreviewWindow: () => BrowserWindow | null,
   onRecordingStateChange?: (recording: boolean, sourceName: string) => void
 ) {
+  const deleteFileIfExists = async (filePath?: string) => {
+    if (!filePath) return
+    try {
+      await fs.unlink(filePath)
+      console.info('[editor][main] Deleted recording asset', { filePath })
+    } catch {
+      console.warn('[editor][main] Could not delete recording asset (ignored)', { filePath })
+    }
+  }
+
   ipcMain.handle('get-sources', async (_, opts) => {
     const sources = await desktopCapturer.getSources(opts)
     return sources.map(source => ({
@@ -40,6 +85,49 @@ export function registerIpcHandlers(
 
   ipcMain.handle('get-selected-source', () => {
     return selectedSource
+  })
+
+  ipcMain.handle('start-input-tracking', (_, payload: {
+    sessionId: string
+    startedAtMs: number
+    sourceId?: string
+    sourceDisplayId?: string
+  }) => {
+    console.info('[auto-zoom][main] start-input-tracking requested', {
+      sessionId: payload.sessionId,
+      sourceId: payload.sourceId,
+      sourceDisplayId: payload.sourceDisplayId,
+      selectedSourceId: selectedSource?.id,
+      selectedSourceDisplayId: selectedSource?.display_id,
+    })
+    const result = inputTrackingService.start(payload, selectedSource)
+    if (result.success) {
+      console.info('[auto-zoom][main] Input tracking started', {
+        sessionId: payload.sessionId,
+      })
+    } else {
+      console.warn('[auto-zoom][main] Input tracking failed to start', {
+        sessionId: payload.sessionId,
+        message: result.message,
+      })
+    }
+    return result
+  })
+
+  ipcMain.handle('stop-input-tracking', () => {
+    const telemetry = inputTrackingService.stop()
+    if (telemetry) {
+      console.info('[auto-zoom][main] Input tracking stopped with telemetry', {
+        sessionId: telemetry.sessionId,
+        totalEvents: telemetry.stats.totalEvents,
+        mouseDownCount: telemetry.stats.mouseDownCount,
+        keyDownCount: telemetry.stats.keyDownCount,
+        wheelCount: telemetry.stats.wheelCount,
+      })
+      return { success: true, telemetry }
+    }
+    console.warn('[auto-zoom][main] stop-input-tracking called with no active tracking session')
+    return { success: false, message: 'No active input tracking session' }
   })
 
   ipcMain.handle('open-source-selector', () => {
@@ -97,6 +185,27 @@ export function registerIpcHandlers(
     }
   })
 
+  ipcMain.handle('start-new-recording-session', async (_, payload?: {
+    replaceCurrentTake?: boolean
+    session?: {
+      screenVideoPath?: string
+      cameraVideoPath?: string
+      inputTelemetryPath?: string
+    }
+  }) => {
+    const replaceCurrentTake = Boolean(payload?.replaceCurrentTake)
+    if (replaceCurrentTake && payload?.session) {
+      await deleteFileIfExists(payload.session.screenVideoPath)
+      await deleteFileIfExists(payload.session.cameraVideoPath)
+      await deleteFileIfExists(payload.session.inputTelemetryPath)
+    }
+
+    currentRecordingSession = null
+    currentVideoPath = null
+    createHudOverlayWindow()
+    return { success: true }
+  })
+
   ipcMain.handle('set-hud-overlay-width', (_, width: number) => {
     const mainWin = getMainWindow()
     if (!mainWin || mainWin.isDestroyed()) {
@@ -124,9 +233,17 @@ export function registerIpcHandlers(
     screenFileName: string
     cameraVideoData?: ArrayBuffer
     cameraFileName?: string
+    inputTelemetry?: InputTelemetryFileV1
+    inputTelemetryFileName?: string
     session: Record<string, unknown>
   }) => {
     try {
+      console.info('[auto-zoom][main] store-recording-session requested', {
+        sessionId: typeof payload.session.id === 'string' ? payload.session.id : undefined,
+        screenFileName: payload.screenFileName,
+        hasCameraVideo: Boolean(payload.cameraVideoData && payload.cameraFileName),
+        hasTelemetry: Boolean(payload.inputTelemetry),
+      })
       const screenVideoPath = path.join(RECORDINGS_DIR, payload.screenFileName)
       await fs.writeFile(screenVideoPath, Buffer.from(payload.screenVideoData))
 
@@ -136,14 +253,39 @@ export function registerIpcHandlers(
         await fs.writeFile(cameraVideoPath, Buffer.from(payload.cameraVideoData))
       }
 
+      let inputTelemetryPath: string | undefined
+      let inputTelemetry: InputTelemetryFileV1 | undefined
+      if (payload.inputTelemetry) {
+        const telemetryFileName = payload.inputTelemetryFileName || `${path.parse(payload.screenFileName).name}.telemetry.json`
+        inputTelemetryPath = path.join(RECORDINGS_DIR, telemetryFileName)
+        await fs.writeFile(inputTelemetryPath, JSON.stringify(payload.inputTelemetry), 'utf-8')
+        inputTelemetry = payload.inputTelemetry
+        console.info('[auto-zoom][main] Telemetry sidecar saved', {
+          inputTelemetryPath,
+          sessionId: payload.inputTelemetry.sessionId,
+          totalEvents: payload.inputTelemetry.stats.totalEvents,
+        })
+      } else {
+        console.warn('[auto-zoom][main] Recording session stored without telemetry payload', {
+          sessionId: typeof payload.session.id === 'string' ? payload.session.id : undefined,
+        })
+      }
+
       const session = {
         ...payload.session,
         screenVideoPath,
         ...(cameraVideoPath ? { cameraVideoPath } : {}),
+        ...(inputTelemetryPath ? { inputTelemetryPath } : {}),
+        ...(inputTelemetry ? { inputTelemetry } : {}),
       }
 
       currentRecordingSession = session
       currentVideoPath = screenVideoPath
+      console.info('[auto-zoom][main] Recording session stored in memory', {
+        sessionId: typeof payload.session.id === 'string' ? payload.session.id : undefined,
+        screenVideoPath,
+        inputTelemetryPath,
+      })
 
       return {
         success: true,
@@ -151,7 +293,7 @@ export function registerIpcHandlers(
         message: 'Recording session stored successfully',
       }
     } catch (error) {
-      console.error('Failed to store recording session:', error)
+      console.error('[auto-zoom][main] Failed to store recording session', error)
       return {
         success: false,
         message: 'Failed to store recording session',
@@ -282,9 +424,29 @@ export function registerIpcHandlers(
     }
   });
 
-  ipcMain.handle('set-current-video-path', (_, path: string) => {
-    currentVideoPath = path;
-    currentRecordingSession = null;
+  ipcMain.handle('set-current-video-path', async (_, videoPath: string) => {
+    currentVideoPath = videoPath;
+    const loadedTelemetry = await loadTelemetryForVideo(videoPath)
+    currentRecordingSession = loadedTelemetry
+      ? {
+          id: `session-${Date.now()}`,
+          startedAtMs: Date.now(),
+          screenVideoPath: videoPath,
+          micEnabled: false,
+          micCaptured: false,
+          cameraEnabled: false,
+          cameraCaptured: false,
+          screenDurationMs: 0,
+          inputTelemetryPath: loadedTelemetry.path,
+          inputTelemetry: loadedTelemetry.telemetry,
+        }
+      : null;
+    console.info('[auto-zoom][main] set-current-video-path complete', {
+      videoPath,
+      hasTelemetry: Boolean(loadedTelemetry),
+      telemetryPath: loadedTelemetry?.path,
+      generatedSessionId: currentRecordingSession?.id,
+    })
     return { success: true };
   });
 
@@ -301,10 +463,20 @@ export function registerIpcHandlers(
   ipcMain.handle('set-current-recording-session', (_, session: Record<string, unknown>) => {
     currentRecordingSession = session;
     currentVideoPath = typeof session.screenVideoPath === 'string' ? session.screenVideoPath : null;
+    console.info('[auto-zoom][main] set-current-recording-session', {
+      sessionId: typeof session.id === 'string' ? session.id : undefined,
+      hasTelemetry: Boolean(session.inputTelemetry),
+      telemetryPath: typeof session.inputTelemetryPath === 'string' ? session.inputTelemetryPath : undefined,
+    })
     return { success: true };
   });
 
   ipcMain.handle('get-current-recording-session', () => {
+    console.info('[auto-zoom][main] get-current-recording-session', {
+      hasSession: Boolean(currentRecordingSession),
+      sessionId: typeof currentRecordingSession?.id === 'string' ? currentRecordingSession.id : undefined,
+      hasTelemetry: Boolean(currentRecordingSession?.inputTelemetry),
+    })
     return currentRecordingSession
       ? { success: true, session: currentRecordingSession }
       : { success: false };

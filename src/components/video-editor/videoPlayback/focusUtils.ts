@@ -1,9 +1,11 @@
-import { ZOOM_DEPTH_SCALES, clampFocusToDepth, type ZoomFocus, type ZoomDepth } from "../types";
+import { getZoomScale, clampFocusToDepth, type ZoomFocus, type ZoomDepth } from "../types";
 
 interface StageSize {
   width: number;
   height: number;
 }
+
+const ZOOM_WINDOW_ASPECT = 16 / 9;
 
 export function clampFocusToStage(
   focus: ZoomFocus,
@@ -14,10 +16,14 @@ export function clampFocusToStage(
     return clampFocusToDepth(focus, depth);
   }
 
-  const zoomScale = ZOOM_DEPTH_SCALES[depth];
-  
-  const windowWidth = stageSize.width / zoomScale;
-  const windowHeight = stageSize.height / zoomScale;
+  const zoomScale = getZoomScale(depth);
+  let windowWidth = stageSize.width / zoomScale;
+  let windowHeight = windowWidth / ZOOM_WINDOW_ASPECT;
+  const maxHeight = stageSize.height / zoomScale;
+  if (windowHeight > maxHeight) {
+    windowHeight = maxHeight;
+    windowWidth = windowHeight * ZOOM_WINDOW_ASPECT;
+  }
   
   const marginX = windowWidth / (2 * stageSize.width);
   const marginY = windowHeight / (2 * stageSize.height);

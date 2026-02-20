@@ -17,6 +17,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
   switchToEditor: () => {
     return ipcRenderer.invoke('switch-to-editor')
   },
+  startNewRecordingSession: (payload?: {
+    replaceCurrentTake?: boolean
+    session?: {
+      screenVideoPath?: string
+      cameraVideoPath?: string
+      inputTelemetryPath?: string
+    }
+  }) => {
+    return ipcRenderer.invoke('start-new-recording-session', payload)
+  },
   openSourceSelector: () => {
     return ipcRenderer.invoke('open-source-selector')
   },
@@ -44,9 +54,22 @@ contextBridge.exposeInMainWorld('electronAPI', {
     screenFileName: string
     cameraVideoData?: ArrayBuffer
     cameraFileName?: string
+    inputTelemetry?: Record<string, unknown>
+    inputTelemetryFileName?: string
     session: Record<string, unknown>
   }) => {
     return ipcRenderer.invoke('store-recording-session', payload)
+  },
+  startInputTracking: (payload: {
+    sessionId: string
+    startedAtMs: number
+    sourceId?: string
+    sourceDisplayId?: string
+  }) => {
+    return ipcRenderer.invoke('start-input-tracking', payload)
+  },
+  stopInputTracking: () => {
+    return ipcRenderer.invoke('stop-input-tracking')
   },
 
   getRecordedVideoPath: () => {

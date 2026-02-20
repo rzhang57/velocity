@@ -1,11 +1,13 @@
 import { Application, Container, Sprite, Graphics, BlurFilter, Texture } from 'pixi.js';
 import type { ZoomRegion, CropRegion, AnnotationRegion, CameraHiddenRegion } from '@/components/video-editor/types';
-import { ZOOM_DEPTH_SCALES } from '@/components/video-editor/types';
+import { getZoomScale } from '@/components/video-editor/types';
 import { findDominantRegion } from '@/components/video-editor/videoPlayback/zoomRegionUtils';
 import { applyZoomTransform } from '@/components/video-editor/videoPlayback/zoomTransform';
 import { DEFAULT_FOCUS, SMOOTHING_FACTOR, MIN_DELTA } from '@/components/video-editor/videoPlayback/constants';
 import { clampFocusToStage as clampFocusToStageUtil } from '@/components/video-editor/videoPlayback/focusUtils';
 import { renderAnnotations } from './annotationRenderer';
+import type { InputTelemetryFileV1 } from '@/types/inputTelemetry';
+import { getCursorTrailPoints } from '@/lib/autoZoom/cursorTrail';
 
 interface FrameRenderConfig {
   width: number;
@@ -16,6 +18,8 @@ interface FrameRenderConfig {
   shadowIntensity: number;
   showBlur: boolean;
   motionBlurEnabled?: boolean;
+  cursorTrailEnabled?: boolean;
+  inputTelemetry?: InputTelemetryFileV1;
   borderRadius?: number;
   padding?: number;
   cropRegion: CropRegion;
@@ -56,6 +60,7 @@ export class FrameRenderer {
   private cameraElement: HTMLVideoElement | null = null;
   private cameraReady = false;
   private shouldRenderCamera = false;
+  private trailGraphics: Graphics | null = null;
 
   constructor(config: FrameRenderConfig) {
     this.config = config;
@@ -100,6 +105,8 @@ export class FrameRenderer {
     this.videoContainer = new Container();
     this.app.stage.addChild(this.cameraContainer);
     this.cameraContainer.addChild(this.videoContainer);
+    this.trailGraphics = new Graphics();
+    this.cameraContainer.addChild(this.trailGraphics);
 
     // Setup background (render separately, not in PixiJS)
     await this.setupBackground();
@@ -377,6 +384,7 @@ export class FrameRenderer {
       isPlaying: true,
       motionBlurEnabled: this.config.motionBlurEnabled ?? false,
     });
+    this.drawCursorTrail();
 
     // Render the PixiJS stage to its canvas (video only, transparent background)
     this.app.renderer.render(this.app.stage);
@@ -480,7 +488,7 @@ export class FrameRenderer {
     let targetFocus = { ...defaultFocus };
 
     if (region && strength > 0) {
-      const zoomScale = ZOOM_DEPTH_SCALES[region.depth];
+      const zoomScale = getZoomScale(region.depth);
       const regionFocus = this.clampFocusToStage(region.focus, region.depth);
       
       targetScaleFactor = 1 + (zoomScale - 1) * strength;
@@ -626,6 +634,38 @@ export class FrameRenderer {
     }
   }
 
+  private drawCursorTrail(): void {
+    this.trailGraphics?.clear();
+    if (!this.trailGraphics || !this.config.cursorTrailEnabled || !this.config.inputTelemetry || !this.layoutCache) {
+      return;
+    }
+
+    const telemetry = this.config.inputTelemetry;
+    const absoluteTimeMs = telemetry.startedAtMs + this.currentVideoTime * 1000;
+    const points = getCursorTrailPoints(telemetry, absoluteTimeMs, 1100, 14);
+    if (points.length === 0) return;
+
+    const crop = this.config.cropRegion;
+    const cropStartX = crop.x * this.config.videoWidth;
+    const cropEndX = cropStartX + crop.width * this.config.videoWidth;
+    const cropStartY = crop.y * this.config.videoHeight;
+    const cropEndY = cropStartY + crop.height * this.config.videoHeight;
+
+    for (const point of points) {
+      const sourceX = point.xNorm * this.config.videoWidth;
+      const sourceY = point.yNorm * this.config.videoHeight;
+      if (sourceX < cropStartX || sourceX > cropEndX || sourceY < cropStartY || sourceY > cropEndY) {
+        continue;
+      }
+
+      const stageX = this.layoutCache.baseOffset.x + sourceX * this.layoutCache.baseScale;
+      const stageY = this.layoutCache.baseOffset.y + sourceY * this.layoutCache.baseScale;
+      const alpha = point.ageRatio * point.ageRatio * 0.4 * point.emphasis;
+      const radius = Math.max(2, 4.5 * point.ageRatio * point.emphasis);
+      this.trailGraphics.circle(stageX, stageY, radius).fill({ color: 0x34b27b, alpha });
+    }
+  }
+
   getCanvas(): HTMLCanvasElement {
     if (!this.compositeCanvas) {
       throw new Error('Renderer not initialized');
@@ -655,5 +695,6 @@ export class FrameRenderer {
     this.cameraElement = null;
     this.cameraReady = false;
     this.shouldRenderCamera = false;
+    this.trailGraphics = null;
   }
 }

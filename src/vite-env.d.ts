@@ -21,18 +21,30 @@ interface RecordingSession {
   cameraStartOffsetMs?: number;
   screenDurationMs: number;
   cameraDurationMs?: number;
+  inputTelemetryPath?: string;
+  inputTelemetry?: import("./types/inputTelemetry").InputTelemetryFileV1;
+  autoZoomGeneratedAtMs?: number;
+  autoZoomAlgorithmVersion?: string;
 }
 
 interface Window {
   electronAPI: {
     getSources: (opts: Electron.SourcesOptions) => Promise<ProcessedDesktopSource[]>
     switchToEditor: () => Promise<void>
+    startNewRecordingSession: (payload?: {
+      replaceCurrentTake?: boolean
+      session?: {
+        screenVideoPath?: string
+        cameraVideoPath?: string
+        inputTelemetryPath?: string
+      }
+    }) => Promise<{ success: boolean }>
     openSourceSelector: () => Promise<void>
     openCameraPreviewWindow: (deviceId?: string) => Promise<{ success: boolean }>
     closeCameraPreviewWindow: () => Promise<{ success: boolean }>
     setHudOverlayWidth: (width: number) => Promise<{ success: boolean }>
-    selectSource: (source: any) => Promise<any>
-    getSelectedSource: () => Promise<any>
+    selectSource: (source: ProcessedDesktopSource) => Promise<ProcessedDesktopSource>
+    getSelectedSource: () => Promise<ProcessedDesktopSource | null>
     storeRecordedVideo: (videoData: ArrayBuffer, fileName: string) => Promise<{
       success: boolean
       path?: string
@@ -44,6 +56,8 @@ interface Window {
       screenFileName: string
       cameraVideoData?: ArrayBuffer
       cameraFileName?: string
+      inputTelemetry?: import("./types/inputTelemetry").InputTelemetryFileV1
+      inputTelemetryFileName?: string
       session: Omit<RecordingSession, 'screenVideoPath' | 'cameraVideoPath'>
     }) => Promise<{
       success: boolean
@@ -51,6 +65,8 @@ interface Window {
       message?: string
       error?: string
     }>
+    startInputTracking: (payload: import("./types/inputTelemetry").StartInputTrackingPayload) => Promise<{ success: boolean; message?: string }>
+    stopInputTracking: () => Promise<{ success: boolean; telemetry?: import("./types/inputTelemetry").InputTelemetryFileV1; message?: string }>
     getRecordedVideoPath: () => Promise<{
       success: boolean
       path?: string

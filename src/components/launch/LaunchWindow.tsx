@@ -295,7 +295,6 @@ export function LaunchWindow() {
             className={`h-7 px-2 gap-1 ${styles.toggleButton} ${micEnabled ? styles.toggleOn : styles.toggleOff}`}
           >
             {micEnabled ? <Mic size={14} className="text-white/90" /> : <MicOff size={14} className="text-white/50" />}
-            <span className="text-[10px] font-medium whitespace-nowrap text-white">{micEnabled ? "Mic On" : "Mic Off"}</span>
           </Button>
           {micEnabled && (
             <>
@@ -354,7 +353,6 @@ export function LaunchWindow() {
             className={`h-7 px-2 gap-1 ${styles.toggleButton} ${cameraEnabled ? styles.toggleOn : styles.toggleOff}`}
           >
             {cameraEnabled ? <Camera size={14} className="text-white/90" /> : <CameraOff size={14} className="text-white/50" />}
-            <span className="text-[10px] font-medium whitespace-nowrap text-white">{cameraEnabled ? "Cam On" : "Cam Off"}</span>
           </Button>
 
           {cameraEnabled && (

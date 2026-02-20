@@ -16,6 +16,9 @@ electron.contextBridge.exposeInMainWorld("electronAPI", {
   switchToEditor: () => {
     return electron.ipcRenderer.invoke("switch-to-editor");
   },
+  startNewRecordingSession: (payload) => {
+    return electron.ipcRenderer.invoke("start-new-recording-session", payload);
+  },
   openSourceSelector: () => {
     return electron.ipcRenderer.invoke("open-source-selector");
   },
@@ -39,6 +42,12 @@ electron.contextBridge.exposeInMainWorld("electronAPI", {
   },
   storeRecordingSession: (payload) => {
     return electron.ipcRenderer.invoke("store-recording-session", payload);
+  },
+  startInputTracking: (payload) => {
+    return electron.ipcRenderer.invoke("start-input-tracking", payload);
+  },
+  stopInputTracking: () => {
+    return electron.ipcRenderer.invoke("stop-input-tracking");
   },
   getRecordedVideoPath: () => {
     return electron.ipcRenderer.invoke("get-recorded-video-path");

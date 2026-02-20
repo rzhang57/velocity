@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTimelineContext } from "dnd-timeline";
 import { Button } from "@/components/ui/button";
-import { Plus, Scissors, ZoomIn, MessageSquare, ChevronDown, Check, CameraOff } from "lucide-react";
+import { Plus, Scissors, ZoomIn, MessageSquare, ChevronDown, Check, CameraOff, MousePointerClick, Keyboard } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import TimelineWrapper from "./TimelineWrapper";
@@ -11,6 +11,7 @@ import KeyframeMarkers from "./KeyframeMarkers";
 import type { Range, Span } from "dnd-timeline";
 import type { ZoomRegion, TrimRegion, AnnotationRegion, CameraHiddenRegion } from "../types";
 import { v4 as uuidv4 } from 'uuid';
+import type { InputTelemetryFileV1 } from "@/types/inputTelemetry";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -32,6 +33,7 @@ interface TimelineEditorProps {
   videoDuration: number;
   currentTime: number;
   onSeek?: (time: number) => void;
+  inputTelemetry?: InputTelemetryFileV1;
   zoomRegions: ZoomRegion[];
   onZoomAdded: (span: Span) => void;
   onZoomSpanChange: (id: string, span: Span) => void;
@@ -75,6 +77,12 @@ interface TimelineRenderItem {
   label: string;
   zoomDepth?: number;
   variant: 'zoom' | 'trim' | 'annotation' | 'camera';
+}
+
+interface ActionMarker {
+  id: string;
+  timeMs: number;
+  type: "click" | "keyboard";
 }
 
 const SCALE_CANDIDATES = [
@@ -409,6 +417,9 @@ function Timeline({
   selectedAnnotationId,
   selectedCameraHiddenId,
   keyframes = [],
+  actionMarkers = [],
+  showClickMarkers = true,
+  showKeyboardMarkers = true,
 }: {
   items: TimelineRenderItem[];
   videoDurationMs: number;
@@ -424,8 +435,11 @@ function Timeline({
   selectedAnnotationId?: string | null;
   selectedCameraHiddenId?: string | null;
   keyframes?: { id: string; time: number }[];
+  actionMarkers?: ActionMarker[];
+  showClickMarkers?: boolean;
+  showKeyboardMarkers?: boolean;
 }) {
-  const { setTimelineRef, style, sidebarWidth, range, pixelsToValue } = useTimelineContext();
+  const { setTimelineRef, style, sidebarWidth, range, pixelsToValue, valueToPixels } = useTimelineContext();
   const localTimelineRef = useRef<HTMLDivElement | null>(null);
 
   const setRefs = useCallback((node: HTMLDivElement | null) => {
@@ -459,6 +473,14 @@ function Timeline({
   const trimItems = items.filter(item => item.rowId === TRIM_ROW_ID);
   const annotationItems = items.filter(item => item.rowId === ANNOTATION_ROW_ID);
   const cameraItems = items.filter(item => item.rowId === CAMERA_ROW_ID);
+  const visibleActionMarkers = useMemo(() => {
+    return actionMarkers.filter((marker) => {
+      if (marker.timeMs < range.start || marker.timeMs > range.end) return false;
+      if (marker.type === "click" && !showClickMarkers) return false;
+      if (marker.type === "keyboard" && !showKeyboardMarkers) return false;
+      return true;
+    });
+  }, [actionMarkers, range.end, range.start, showClickMarkers, showKeyboardMarkers]);
 
   return (
     <div
@@ -476,6 +498,35 @@ function Timeline({
         timelineRef={localTimelineRef}
         keyframes={keyframes}
       />
+      {visibleActionMarkers.map((marker) => {
+        const offset = valueToPixels(marker.timeMs - range.start);
+        const markerColor = marker.type === "click" ? "#34B27B" : "#f59e0b";
+        const markerTitle = `${marker.type === "click" ? "Click" : "Keyboard"} at ${formatPlayheadTime(marker.timeMs)}`;
+        return (
+          <button
+            key={marker.id}
+            type="button"
+            className="absolute top-8 bottom-0 z-20 group/marker"
+            style={{
+              marginLeft: `${sidebarWidth - 1}px`,
+              left: `${offset}px`,
+              width: "2px",
+              backgroundColor: markerColor,
+              boxShadow: `0 0 8px ${markerColor}66`,
+            }}
+            title={markerTitle}
+            onClick={(event) => {
+              event.stopPropagation();
+              onSeek?.(marker.timeMs / 1000);
+            }}
+          >
+            <span
+              className="absolute -top-1 -left-[5px] h-3 w-3 rounded-full border border-white/30"
+              style={{ backgroundColor: markerColor }}
+            />
+          </button>
+        );
+      })}
 
       <Row id={ZOOM_ROW_ID} isEmpty={zoomItems.length === 0} hint="Press Z to add zoom">
         {zoomItems.map((item) => (
@@ -551,6 +602,7 @@ export default function TimelineEditor({
   videoDuration,
   currentTime,
   onSeek,
+  inputTelemetry,
   zoomRegions,
   onZoomAdded,
   onZoomSpanChange,
@@ -593,7 +645,42 @@ export default function TimelineEditor({
     pan: 'Shift + Ctrl + Scroll',
     zoom: 'Ctrl + Scroll'
   });
+  const [showClickMarkers, setShowClickMarkers] = useState(true);
+  const [showKeyboardMarkers, setShowKeyboardMarkers] = useState(true);
   const timelineContainerRef = useRef<HTMLDivElement>(null);
+
+  const actionMarkers = useMemo<ActionMarker[]>(() => {
+    if (!inputTelemetry || totalMs <= 0) return [];
+
+    const clickMarkers: ActionMarker[] = inputTelemetry.events
+      .filter((event) => event.type === "mouseDown")
+      .map((event, index) => ({
+        id: `click-${event.ts}-${index}`,
+        timeMs: Math.max(0, Math.min(totalMs, Math.round(event.ts - inputTelemetry.startedAtMs))),
+        type: "click",
+      }));
+
+    const keyboardEvents = inputTelemetry.events
+      .filter((event) => event.type === "keyDownCategory" && event.category !== "modifier")
+      .sort((a, b) => a.ts - b.ts);
+
+    const keyboardMarkers: ActionMarker[] = [];
+    let lastKeyboardTs = -Infinity;
+    for (let i = 0; i < keyboardEvents.length; i += 1) {
+      const event = keyboardEvents[i];
+      if (event.ts - lastKeyboardTs < 420) {
+        continue;
+      }
+      lastKeyboardTs = event.ts;
+      keyboardMarkers.push({
+        id: `keyboard-${event.ts}-${i}`,
+        timeMs: Math.max(0, Math.min(totalMs, Math.round(event.ts - inputTelemetry.startedAtMs))),
+        type: "keyboard",
+      });
+    }
+
+    return [...clickMarkers, ...keyboardMarkers].sort((a, b) => a.timeMs - b.timeMs);
+  }, [inputTelemetry, totalMs]);
 
   useEffect(() => {
     formatShortcut(['shift', 'mod', 'Scroll']).then(pan => {
@@ -1075,6 +1162,39 @@ export default function TimelineEditor({
           </DropdownMenu>
           <div className="w-[1px] h-4 bg-white/10" />
           <TutorialHelp />
+          {inputTelemetry && (
+            <>
+              <div className="w-[1px] h-4 bg-white/10" />
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowClickMarkers((prev) => !prev)}
+                className={cn(
+                  "h-7 px-2 text-xs gap-1",
+                  showClickMarkers ? "text-[#34B27B] bg-[#34B27B]/10 hover:bg-[#34B27B]/20" : "text-slate-500 hover:text-slate-300 hover:bg-white/10"
+                )}
+                title="Toggle click markers"
+              >
+                <MousePointerClick className="w-3.5 h-3.5" />
+                Clicks
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowKeyboardMarkers((prev) => !prev)}
+                className={cn(
+                  "h-7 px-2 text-xs gap-1",
+                  showKeyboardMarkers ? "text-amber-400 bg-amber-500/10 hover:bg-amber-500/20" : "text-slate-500 hover:text-slate-300 hover:bg-white/10"
+                )}
+                title="Toggle keyboard markers"
+              >
+                <Keyboard className="w-3.5 h-3.5" />
+                Keys
+              </Button>
+            </>
+          )}
         </div>
         <div className="flex-1" />
         <div className="flex items-center gap-4 text-[10px] text-slate-500 font-medium">
@@ -1127,7 +1247,9 @@ export default function TimelineEditor({
             selectedAnnotationId={selectedAnnotationId}
             selectedCameraHiddenId={selectedCameraHiddenId}
             keyframes={keyframes}
-
+            actionMarkers={actionMarkers}
+            showClickMarkers={showClickMarkers}
+            showKeyboardMarkers={showKeyboardMarkers}
           />
         </TimelineWrapper>
       </div>

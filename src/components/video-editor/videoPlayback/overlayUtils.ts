@@ -1,4 +1,4 @@
-import { ZOOM_DEPTH_SCALES, type ZoomRegion, type ZoomFocus } from "../types";
+import { getZoomScale, type ZoomRegion, type ZoomFocus } from "../types";
 import { clampFocusToStage } from "./focusUtils";
 
 interface OverlayUpdateParams {
@@ -10,6 +10,8 @@ interface OverlayUpdateParams {
   baseScale: number;
   isPlaying: boolean;
 }
+
+const ZOOM_WINDOW_ASPECT = 16 / 9;
 
 export function updateOverlayIndicator(params: OverlayUpdateParams) {
   const { overlayEl, indicatorEl, region, focusOverride, videoSize, baseScale, isPlaying } = params;
@@ -35,16 +37,21 @@ export function updateOverlayIndicator(params: OverlayUpdateParams) {
     return;
   }
 
-  const zoomScale = ZOOM_DEPTH_SCALES[region.depth];
+  const zoomScale = getZoomScale(region.depth);
   const focus = clampFocusToStage(
     focusOverride ?? region.focus,
     region.depth,
     { width: stageWidth, height: stageHeight }
   );
 
-  // Zoom window shows the stage area that will be visible after zooming (1/zoomScale of stage dimensions)
-  const indicatorWidth = stageWidth / zoomScale;
-  const indicatorHeight = stageHeight / zoomScale;
+  // Zoom window shows visible area after zooming and is always 16:9.
+  let indicatorWidth = stageWidth / zoomScale;
+  let indicatorHeight = indicatorWidth / ZOOM_WINDOW_ASPECT;
+  const maxHeight = stageHeight / zoomScale;
+  if (indicatorHeight > maxHeight) {
+    indicatorHeight = maxHeight;
+    indicatorWidth = indicatorHeight * ZOOM_WINDOW_ASPECT;
+  }
 
   const rawLeft = focus.cx * stageWidth - indicatorWidth / 2;
   const rawTop = focus.cy * stageHeight - indicatorHeight / 2;

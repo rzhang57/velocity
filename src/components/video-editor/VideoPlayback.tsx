@@ -2,7 +2,7 @@ import type React from "react";
 import { useEffect, useRef, useImperativeHandle, forwardRef, useState, useMemo, useCallback } from "react";
 import { getAssetPath } from "@/lib/assetPath";
 import { Application, Container, Sprite, Graphics, BlurFilter, Texture, VideoSource } from 'pixi.js';
-import { ZOOM_DEPTH_SCALES, type ZoomRegion, type ZoomFocus, type ZoomDepth, type TrimRegion, type AnnotationRegion, type CameraHiddenRegion } from "./types";
+import { getZoomScale, getZoomDepthFromScale, ZOOM_DEPTH_MAX, ZOOM_DEPTH_MIN, type ZoomRegion, type ZoomFocus, type ZoomDepth, type TrimRegion, type AnnotationRegion, type CameraHiddenRegion } from "./types";
 import { DEFAULT_FOCUS, SMOOTHING_FACTOR, MIN_DELTA } from "./videoPlayback/constants";
 import { clamp01 } from "./videoPlayback/mathUtils";
 import { findDominantRegion } from "./videoPlayback/zoomRegionUtils";
@@ -13,6 +13,8 @@ import { applyZoomTransform } from "./videoPlayback/zoomTransform";
 import { createVideoEventHandlers } from "./videoPlayback/videoEventHandlers";
 import { type AspectRatio, formatAspectRatioForCSS } from "@/utils/aspectRatioUtils";
 import { AnnotationOverlay } from "./AnnotationOverlay";
+import type { InputTelemetryFileV1 } from "@/types/inputTelemetry";
+import { getCursorTrailPoints } from "@/lib/autoZoom/cursorTrail";
 
 interface VideoPlaybackProps {
   videoPath: string;
@@ -29,11 +31,14 @@ interface VideoPlaybackProps {
   selectedZoomId: string | null;
   onSelectZoom: (id: string | null) => void;
   onZoomFocusChange: (id: string, focus: ZoomFocus) => void;
+  onZoomDepthChange: (id: string, depth: ZoomDepth) => void;
   isPlaying: boolean;
   showShadow?: boolean;
   shadowIntensity?: number;
   showBlur?: boolean;
   motionBlurEnabled?: boolean;
+  cursorTrailEnabled?: boolean;
+  inputTelemetry?: InputTelemetryFileV1;
   borderRadius?: number;
   padding?: number;
   cropRegion?: import('./types').CropRegion;
@@ -71,11 +76,14 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(({
   selectedZoomId,
   onSelectZoom,
   onZoomFocusChange,
+  onZoomDepthChange,
   isPlaying,
   showShadow,
   shadowIntensity = 0,
   showBlur,
   motionBlurEnabled = false,
+  cursorTrailEnabled = false,
+  inputTelemetry,
   borderRadius = 0,
   padding = 50,
   cropRegion,
@@ -121,6 +129,17 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(({
   const trimRegionsRef = useRef<TrimRegion[]>([]);
   const motionBlurEnabledRef = useRef(motionBlurEnabled);
   const videoReadyRafRef = useRef<number | null>(null);
+  const resizeStateRef = useRef<{
+    direction: 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
+    startX: number;
+    startY: number;
+    startWidth: number;
+    stageWidth: number;
+    regionId: string;
+  } | null>(null);
+  const cursorTrailEnabledRef = useRef(cursorTrailEnabled);
+  const inputTelemetryRef = useRef<InputTelemetryFileV1 | undefined>(inputTelemetry);
+  const trailGraphicsRef = useRef<Graphics | null>(null);
 
   const clampFocusToStage = useCallback((focus: ZoomFocus, depth: ZoomDepth) => {
     return clampFocusToStageUtil(focus, depth, stageSizeRef.current);
@@ -288,6 +307,7 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(({
   };
 
   const handleOverlayPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (resizeStateRef.current) return;
     if (!isDraggingFocusRef.current) return;
     event.preventDefault();
     updateFocusFromClientPoint(event.clientX, event.clientY);
@@ -296,10 +316,8 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(({
   const endFocusDrag = (event: React.PointerEvent<HTMLDivElement>) => {
     if (!isDraggingFocusRef.current) return;
     isDraggingFocusRef.current = false;
-    try {
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
-    } catch {
-      
     }
   };
 
@@ -310,6 +328,74 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(({
   const handleOverlayPointerLeave = (event: React.PointerEvent<HTMLDivElement>) => {
     endFocusDrag(event);
   };
+
+  const handleResizeHandlePointerDown = (
+    direction: 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw',
+    event: React.PointerEvent<HTMLDivElement>
+  ) => {
+    if (isPlayingRef.current) return;
+    const overlayEl = overlayRef.current;
+    const regionId = selectedZoomIdRef.current;
+    const region = zoomRegionsRef.current.find((r) => r.id === regionId);
+    if (!overlayEl || !regionId || !region) return;
+
+    const stageWidth = overlayEl.clientWidth;
+    const zoomScale = getZoomScale(region.depth);
+    const startWidth = stageWidth / zoomScale;
+    resizeStateRef.current = {
+      direction,
+      startX: event.clientX,
+      startY: event.clientY,
+      startWidth,
+      stageWidth,
+      regionId,
+    };
+
+    event.preventDefault();
+    event.stopPropagation();
+  };
+
+  useEffect(() => {
+    const onPointerMove = (event: PointerEvent) => {
+      const state = resizeStateRef.current;
+      if (!state) return;
+      const region = zoomRegionsRef.current.find((r) => r.id === state.regionId);
+      if (!region) return;
+
+      const deltaX = event.clientX - state.startX;
+      const deltaY = event.clientY - state.startY;
+
+      let projectedDelta = 0;
+      if (state.direction === 'e') projectedDelta = deltaX;
+      else if (state.direction === 'w') projectedDelta = -deltaX;
+      else if (state.direction === 's') projectedDelta = deltaY * (16 / 9);
+      else if (state.direction === 'n') projectedDelta = -deltaY * (16 / 9);
+      else {
+        const horizontal = state.direction.includes('e') ? deltaX : -deltaX;
+        const vertical = state.direction.includes('s') ? deltaY * (16 / 9) : -deltaY * (16 / 9);
+        projectedDelta = Math.abs(horizontal) > Math.abs(vertical) ? horizontal : vertical;
+      }
+
+      const minWidth = state.stageWidth / getZoomScale(ZOOM_DEPTH_MAX);
+      const maxWidth = state.stageWidth / getZoomScale(ZOOM_DEPTH_MIN);
+      const nextWidth = Math.max(minWidth, Math.min(maxWidth, state.startWidth + projectedDelta * 1.6));
+      const nextDepth = getZoomDepthFromScale(state.stageWidth / nextWidth);
+
+      onZoomDepthChange(region.id, nextDepth);
+      updateOverlayForRegion({ ...region, depth: nextDepth });
+    };
+
+    const onPointerUp = () => {
+      resizeStateRef.current = null;
+    };
+
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerUp);
+    return () => {
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', onPointerUp);
+    };
+  }, [onZoomDepthChange, updateOverlayForRegion]);
 
   useEffect(() => {
     zoomRegionsRef.current = zoomRegions;
@@ -330,6 +416,14 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(({
   useEffect(() => {
     motionBlurEnabledRef.current = motionBlurEnabled;
   }, [motionBlurEnabled]);
+
+  useEffect(() => {
+    cursorTrailEnabledRef.current = cursorTrailEnabled;
+  }, [cursorTrailEnabled]);
+
+  useEffect(() => {
+    inputTelemetryRef.current = inputTelemetry;
+  }, [inputTelemetry]);
 
   useEffect(() => {
     if (!pixiReady || !videoReady) return;
@@ -478,6 +572,10 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(({
       const videoContainer = new Container();
       videoContainerRef.current = videoContainer;
       cameraContainer.addChild(videoContainer);
+
+      const trailGraphics = new Graphics();
+      trailGraphicsRef.current = trailGraphics;
+      cameraContainer.addChild(trailGraphics);
       
       setPixiReady(true);
     })();
@@ -492,6 +590,7 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(({
       cameraContainerRef.current = null;
       videoContainerRef.current = null;
       videoSpriteRef.current = null;
+      trailGraphicsRef.current = null;
     };
   }, []);
 
@@ -657,6 +756,42 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(({
       });
     };
 
+    const drawCursorTrail = () => {
+      const trailGraphics = trailGraphicsRef.current;
+      trailGraphics?.clear();
+      if (!trailGraphics || !cursorTrailEnabledRef.current) return;
+
+      const telemetry = inputTelemetryRef.current;
+      if (!telemetry) return;
+
+      const absoluteTimeMs = telemetry.startedAtMs + currentTimeRef.current;
+      const points = getCursorTrailPoints(telemetry, absoluteTimeMs, 1100, 14);
+      if (points.length === 0) return;
+
+      const lockedVideo = lockedVideoDimensionsRef.current;
+      const sourceWidth = lockedVideo?.width || videoRef.current?.videoWidth || 0;
+      const sourceHeight = lockedVideo?.height || videoRef.current?.videoHeight || 0;
+      if (!sourceWidth || !sourceHeight) return;
+
+      const cropBounds = cropBoundsRef.current;
+      const baseScale = baseScaleRef.current;
+      const baseOffset = baseOffsetRef.current;
+
+      for (const point of points) {
+        const sourceX = point.xNorm * sourceWidth;
+        const sourceY = point.yNorm * sourceHeight;
+        if (sourceX < cropBounds.startX || sourceX > cropBounds.endX || sourceY < cropBounds.startY || sourceY > cropBounds.endY) {
+          continue;
+        }
+
+        const stageX = baseOffset.x + sourceX * baseScale;
+        const stageY = baseOffset.y + sourceY * baseScale;
+        const alpha = point.ageRatio * point.ageRatio * 0.4 * point.emphasis;
+        const radius = Math.max(2, 4.5 * point.ageRatio * point.emphasis);
+        trailGraphics.circle(stageX, stageY, radius).fill({ color: 0x34b27b, alpha });
+      }
+    };
+
     const ticker = () => {
       const { region, strength } = findDominantRegion(zoomRegionsRef.current, currentTimeRef.current);
       
@@ -671,7 +806,7 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(({
       const shouldShowUnzoomedView = hasSelectedZoom && !isPlayingRef.current;
 
       if (region && strength > 0 && !shouldShowUnzoomedView) {
-        const zoomScale = ZOOM_DEPTH_SCALES[region.depth];
+        const zoomScale = getZoomScale(region.depth);
         const regionFocus = clampFocusToStage(region.focus, region.depth);
         
         // Interpolate scale and focus based on region strength
@@ -725,6 +860,7 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(({
       );
 
       applyTransform(motionIntensity);
+      drawCursorTrail();
     };
 
     app.ticker.add(ticker);
@@ -864,8 +1000,25 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(({
           <div
             ref={focusIndicatorRef}
             className="absolute rounded-md border border-[#34B27B]/80 bg-[#34B27B]/20 shadow-[0_0_0_1px_rgba(52,178,123,0.35)]"
-            style={{ display: 'none', pointerEvents: 'none' }}
-          />
+            style={{ display: 'none', pointerEvents: 'auto' }}
+          >
+            {([
+              { dir: 'n', className: 'absolute left-1/2 -top-1 h-2 w-6 -translate-x-1/2 cursor-ns-resize' },
+              { dir: 's', className: 'absolute left-1/2 -bottom-1 h-2 w-6 -translate-x-1/2 cursor-ns-resize' },
+              { dir: 'e', className: 'absolute right-[-4px] top-1/2 h-6 w-2 -translate-y-1/2 cursor-ew-resize' },
+              { dir: 'w', className: 'absolute left-[-4px] top-1/2 h-6 w-2 -translate-y-1/2 cursor-ew-resize' },
+              { dir: 'ne', className: 'absolute right-[-4px] -top-1 h-3 w-3 cursor-nesw-resize' },
+              { dir: 'nw', className: 'absolute left-[-4px] -top-1 h-3 w-3 cursor-nwse-resize' },
+              { dir: 'se', className: 'absolute right-[-4px] -bottom-1 h-3 w-3 cursor-nwse-resize' },
+              { dir: 'sw', className: 'absolute left-[-4px] -bottom-1 h-3 w-3 cursor-nesw-resize' },
+            ] as const).map((handle) => (
+              <div
+                key={handle.dir}
+                className={handle.className}
+                onPointerDown={(event) => handleResizeHandlePointerDown(handle.dir, event)}
+              />
+            ))}
+          </div>
           {(() => {
             const filtered = (annotationRegions || []).filter((annotation) => {
               if (typeof annotation.startMs !== 'number' || typeof annotation.endMs !== 'number') return false;

@@ -126,6 +126,19 @@ function createEditorWindowWrapper() {
   mainWindow = createEditorWindow()
 }
 
+function createHudOverlayWindowWrapper() {
+  if (mainWindow) {
+    mainWindow.close()
+    mainWindow = null
+  }
+  closeCameraPreviewWindow()
+  if (sourceSelectorWindow && !sourceSelectorWindow.isDestroyed()) {
+    sourceSelectorWindow.close()
+  }
+  sourceSelectorWindow = null
+  mainWindow = createHudOverlayWindow()
+}
+
 function createSourceSelectorWindowWrapper() {
   sourceSelectorWindow = createSourceSelectorWindow()
   sourceSelectorWindow.on('closed', () => {
@@ -164,6 +177,7 @@ app.whenReady().then(async () => {
 
   registerIpcHandlers(
     createEditorWindowWrapper,
+    createHudOverlayWindowWrapper,
     createSourceSelectorWindowWrapper,
     createCameraPreviewWindow,
     closeCameraPreviewWindow,

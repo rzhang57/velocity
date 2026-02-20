@@ -3,6 +3,7 @@ import { StreamingVideoDecoder } from './streamingDecoder';
 import { FrameRenderer } from './frameRenderer';
 import { VideoMuxer } from './muxer';
 import type { ZoomRegion, CropRegion, TrimRegion, AnnotationRegion, CameraHiddenRegion } from '@/components/video-editor/types';
+import type { InputTelemetryFileV1 } from '@/types/inputTelemetry';
 
 interface VideoExporterConfig extends ExportConfig {
   videoUrl: string;
@@ -16,6 +17,8 @@ interface VideoExporterConfig extends ExportConfig {
   shadowIntensity: number;
   showBlur: boolean;
   motionBlurEnabled?: boolean;
+  cursorTrailEnabled?: boolean;
+  inputTelemetry?: InputTelemetryFileV1;
   borderRadius?: number;
   padding?: number;
   videoPadding?: number;
@@ -68,6 +71,8 @@ export class VideoExporter {
         shadowIntensity: this.config.shadowIntensity,
         showBlur: this.config.showBlur,
         motionBlurEnabled: this.config.motionBlurEnabled,
+        cursorTrailEnabled: this.config.cursorTrailEnabled,
+        inputTelemetry: this.config.inputTelemetry,
         borderRadius: this.config.borderRadius,
         padding: this.config.padding,
         cropRegion: this.config.cropRegion,
