@@ -1,5 +1,5 @@
-# openscreen
-open source screen recording built to deliver beautiful, smooth, desktop videos
+# velocity
+open source screen recording built to deliver beautiful, smooth, desktop videos quickly
 
 ## stack
 - TypeScript
@@ -8,19 +8,22 @@ open source screen recording built to deliver beautiful, smooth, desktop videos
 
 ## current features
 - record screen (or a specific window), microphone input, and your webcam simultaneously
+- automatic zoom in/out animations created at recording time based on input telemetry
 - built in editor allowing you to:
-    - add smooth zoom in/out animations with custom duration, position, depth
-    - crop viewable video area
-    - add custom backgrounds
-    - trim your recordings
-    - show/hide webcam
-    - add annotations (text, arrows, images)
+  - adjust automatic focus animation intensity (regeneration)
+  - manually add smooth zoom in/out animations with adjustable duration, position, depth
+  - crop viewable video area
+  - add custom backgrounds
+  - trim recordings
+  - adjust webcam viewable timestamps
+  - add annotations (text, arrows, images)
 - export final edit to different resolutions, formats
+  - up to 4k 120FPS
 
 ## soon
-- automatic zoom in/out animations with option to manually edit
 - bug fixes
-- more customizable editor
+- custom cursors
+- improved editor
 
 ## getting started
 ```npm run dev```
