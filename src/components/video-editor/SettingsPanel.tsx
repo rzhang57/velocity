@@ -670,7 +670,7 @@ export function SettingsPanel({
         {exportFormat === 'gif' && (
           <div className="mb-3 space-y-2">
             <div className="flex items-center gap-2">
-              <div className="flex-1 bg-white/5 border border-white/5 p-0.5 grid grid-cols-4 h-7 rounded-lg">
+              <div className="flex-1 bg-white/5 border border-white/5 p-0.5 grid h-7 rounded-lg" style={{ gridTemplateColumns: `repeat(${GIF_FRAME_RATES.length}, minmax(0, 1fr))` }}>
                 {GIF_FRAME_RATES.map((rate) => (
                   <button
                     key={rate.value}
@@ -684,7 +684,7 @@ export function SettingsPanel({
                   </button>
                 ))}
               </div>
-              <div className="flex-1 bg-white/5 border border-white/5 p-0.5 grid grid-cols-3 h-7 rounded-lg">
+              <div className="flex-1 bg-white/5 border border-white/5 p-0.5 grid h-7 rounded-lg" style={{ gridTemplateColumns: `repeat(${Object.keys(GIF_SIZE_PRESETS).length}, minmax(0, 1fr))` }}>
                 {Object.entries(GIF_SIZE_PRESETS).map(([key]) => (
                   <button
                     key={key}

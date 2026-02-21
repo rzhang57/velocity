@@ -1,7 +1,11 @@
 import { useState, useRef, useEffect } from "react";
 import { fixWebmDuration } from "@fix-webm-duration/fix";
 import type { InputTelemetryFileV1 } from "@/types/inputTelemetry";
-import type { RecordingEncoder } from "@/types/nativeCapture";
+import type {
+  RecordingEncoder,
+  NativeCaptureStartPayload,
+  NativeCaptureSource,
+} from "@/types/nativeCapture";
 
 const RECORDING_NOTICE_STORAGE_KEY = "openscreen.recordingNotice";
 
@@ -53,6 +57,7 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
       localStorage.setItem(RECORDING_NOTICE_STORAGE_KEY, message);
     } catch {
     }
+
   };
   const clearRecordingNotice = () => {
     try {
@@ -330,13 +335,14 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
       const canTryNativeCapture = typeof window.electronAPI?.nativeCaptureStart === "function";
       nativeCustomCursorEnabledRef.current = Boolean(options.customCursorEnabled);
       nativeRecordingEncoderRef.current = options.recordingEncoder || "h264_libx264";
-      const sourceType = typeof selectedSource.id === "string" && selectedSource.id.startsWith("window:")
-        ? "window"
-        : "screen";
+      const sourceType: NativeCaptureSource["type"] =
+        typeof selectedSource.id === "string" && selectedSource.id.startsWith("window:")
+          ? "window"
+          : "screen";
       const shouldPreferNative = Boolean(options.customCursorEnabled) || !options.useLegacyRecorder;
       if (canTryNativeCapture && shouldPreferNative) {
         const selectedEncoder = options.recordingEncoder || "h264_libx264";
-        const buildNativePayload = async (encoder: RecordingEncoder) => {
+        const buildNativePayload = async (encoder: RecordingEncoder): Promise<NativeCaptureStartPayload> => {
           let bitrate = computeBitrate(captureProfile.width, captureProfile.height, captureProfile.fps);
           if (encoder === "h264_nvenc") {
             bitrate = Math.max(8_000_000, Math.round(bitrate * 0.8));

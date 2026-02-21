@@ -164,17 +164,24 @@ export class GifExporter {
       // Initialize GIF encoder
       // Loop: 0 = infinite loop, 1 = play once (no loop)
       const repeat = this.config.loop ? 0 : 1;
+      const qualityByPreset: Record<GifSizePreset, number> = {
+        small: 20,
+        medium: 14,
+        large: 10,
+        original: 10,
+      };
+      const encoderQuality = qualityByPreset[this.config.sizePreset] ?? 14;
 
       this.gif = new GIF({
         workers: 4,
-        quality: 10,
+        quality: encoderQuality,
         width: this.config.width,
         height: this.config.height,
         workerScript: GIF_WORKER_URL,
         repeat,
         background: '#000000',
         transparent: null,
-        dither: 'FloydSteinberg',
+        dither: false,
       });
       this.config.onProgress?.({
         currentFrame: 0,

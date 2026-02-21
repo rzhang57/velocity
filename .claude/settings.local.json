@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(npx vitest:*)",
-      "Bash(cargo build:*)"
+      "Bash(cargo build:*)",
+      "Bash(/c/Users/Ryan/Documents/GitHub/velocity/native-capture-sidecar/target/release/native-capture-sidecar.exe)"
     ]
   }
 }
