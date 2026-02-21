@@ -610,7 +610,7 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(({
       cameraContainer.addChild(trailGraphics);
 
       const cursorEraserGraphics = new Graphics();
-      cursorEraserGraphics.blendMode = 'erase' as any;
+      cursorEraserGraphics.blendMode = 'erase';
       cursorEraserGraphicsRef.current = cursorEraserGraphics;
       videoContainer.addChild(cursorEraserGraphics);
 
@@ -738,16 +738,17 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(({
     video.addEventListener('ended', handlePause);
     video.addEventListener('seeked', handleSeeked);
     video.addEventListener('seeking', handleSeeking);
-    
+    const raf = timeUpdateAnimationRef;
+
     return () => {
       video.removeEventListener('play', handlePlay);
       video.removeEventListener('pause', handlePause);
       video.removeEventListener('ended', handlePause);
       video.removeEventListener('seeked', handleSeeked);
       video.removeEventListener('seeking', handleSeeking);
-      
-      if (timeUpdateAnimationRef.current) {
-        cancelAnimationFrame(timeUpdateAnimationRef.current);
+
+      if (raf.current) {
+        cancelAnimationFrame(raf.current);
       }
       
       if (videoSprite) {
@@ -769,7 +770,7 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(({
       
       videoSpriteRef.current = null;
     };
-  }, [pixiReady, videoReady, onTimeUpdate, updateOverlayForRegion]);
+  }, [pixiReady, videoReady, onTimeUpdate, updateOverlayForRegion, layoutVideoContent, onPlayStateChange]);
 
   useEffect(() => {
     if (!pixiReady || !videoReady) return;

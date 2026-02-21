@@ -3,7 +3,21 @@
     "allow": [
       "Bash(npx vitest:*)",
       "Bash(cargo build:*)",
-      "Bash(/c/Users/Ryan/Documents/GitHub/velocity/native-capture-sidecar/target/release/native-capture-sidecar.exe)"
+      "Bash(/c/Users/Ryan/Documents/GitHub/velocity/native-capture-sidecar/target/release/native-capture-sidecar.exe)",
+      "Bash(ls:*)",
+      "Bash(head:*)",
+      "Bash(tail:*)",
+      "Bash(cd:*)",
+      "Bash(cd /c/Users/Ryan/Documents/GitHub/velocity && npm install 2>&1)",
+      "Bash(cd /c/Users/Ryan/Documents/GitHub/velocity && npm audit 2>&1)",
+      "Bash(node:*)",
+      "Bash(npm view electron-builder dist-tags 2>&1 && npm view electron-builder@latest version 2>&1)",
+      "Bash(cd /c/Users/Ryan/Documents/GitHub/velocity && npm test 2>&1)",
+      "Bash(cd /c/Users/Ryan/Documents/GitHub/velocity && npm run lint 2>&1)",
+      "Bash(cd \"C:/Users/Ryan/Documents/GitHub/velocity\" && npm run lint 2>&1)",
+      "Bash(grep:*)",
+      "Bash(cd \"C:/Users/Ryan/Documents/GitHub/velocity\" && npx eslint src/components/video-editor/VideoPlayback.tsx --ext ts,tsx 2>&1)",
+      "Bash(echo Exit code: $?:*)"
     ]
   }
 }

@@ -275,7 +275,7 @@ export class NativeCaptureService {
       this.consumeStdout(chunk);
     });
     child.stderr.setEncoding("utf8");
-    child.stderr.on("data", (_chunk: string) => {});
+    child.stderr.on("data", () => {});
     child.on("exit", (code, signal) => {
       const message = `Native capture sidecar exited (code=${code ?? "null"}, signal=${signal ?? "null"})`;
       for (const [, pending] of this.pending.entries()) {

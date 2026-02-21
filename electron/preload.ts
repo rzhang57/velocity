@@ -123,7 +123,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('hud-settings-updated', listener)
     return () => ipcRenderer.removeListener('hud-settings-updated', listener)
   },
-  selectSource: (source: any) => {
+  selectSource: (source: { id?: string; display_id?: string; name?: string }) => {
     return ipcRenderer.invoke('select-source', source)
   },
   getSelectedSource: () => {

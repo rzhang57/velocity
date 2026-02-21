@@ -298,6 +298,7 @@ export class StreamingVideoDecoder {
       try {
         await reader.cancel();
       } catch {
+        // intentional: ignore reader cancel errors during cleanup
       }
     }
   }
@@ -519,7 +520,7 @@ export class StreamingVideoDecoder {
     }
 
     if (this.demuxer) {
-      try { this.demuxer.destroy(); } catch { }
+      try { this.demuxer.destroy(); } catch { /* intentional: ignore demuxer destroy errors */ }
       this.demuxer = null;
     }
   }

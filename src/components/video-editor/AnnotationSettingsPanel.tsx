@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Slider } from "@/components/ui/slider";
 import { cn } from "@/lib/utils";
-import { getArrowComponent } from "./ArrowSvgs";
+import { getArrowComponent } from "./arrowUtils";
 import { AddCustomFontDialog } from "./AddCustomFontDialog";
 import { getCustomFonts, type CustomFont } from "@/lib/customFonts";
 

@@ -228,11 +228,11 @@ class NativeHookProvider {
     }
     this.hook = hook;
     this.handlers = [
-      { name: "mousedown", cb: callbacks.onMouseDown },
-      { name: "mouseup", cb: callbacks.onMouseUp },
-      { name: "mousemove", cb: callbacks.onMouseMove },
-      { name: "wheel", cb: callbacks.onWheel },
-      { name: "keydown", cb: callbacks.onKeyDown }
+      { name: "mousedown", cb: (e) => callbacks.onMouseDown(e) },
+      { name: "mouseup", cb: (e) => callbacks.onMouseUp(e) },
+      { name: "mousemove", cb: (e) => callbacks.onMouseMove(e) },
+      { name: "wheel", cb: (e) => callbacks.onWheel(e) },
+      { name: "keydown", cb: (e) => callbacks.onKeyDown(e) }
     ];
     try {
       for (const handler of this.handlers) {
@@ -696,7 +696,7 @@ ${output.stderr || ""}`;
       this.consumeStdout(chunk);
     });
     child.stderr.setEncoding("utf8");
-    child.stderr.on("data", (_chunk) => {
+    child.stderr.on("data", () => {
     });
     child.on("exit", (code, signal) => {
       const message = `Native capture sidecar exited (code=${code ?? "null"}, signal=${signal ?? "null"})`;
@@ -1081,7 +1081,7 @@ function registerIpcHandlers(createEditorWindow2, createHudOverlayWindow2, creat
     const parsed = path.parse(fileName);
     let candidate = path.join(directoryPath, fileName);
     let suffix = 1;
-    while (true) {
+    for (; ; ) {
       try {
         await fs$1.access(candidate);
         candidate = path.join(directoryPath, `${parsed.name} (${suffix})${parsed.ext}`);

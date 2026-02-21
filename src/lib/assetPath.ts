@@ -6,8 +6,9 @@ export async function getAssetPath(relativePath: string): Promise<string> {
         return `/${relativePath.replace(/^\//, '')}`
       }
 
-      if ((window as any).electronAPI && typeof (window as any).electronAPI.getAssetBasePath === 'function') {
-        const base = await (window as any).electronAPI.getAssetBasePath()
+      const electronAPI = (window as unknown as { electronAPI?: { getAssetBasePath?: () => Promise<string> } }).electronAPI;
+      if (electronAPI && typeof electronAPI.getAssetBasePath === 'function') {
+        const base = await electronAPI.getAssetBasePath()
         if (base) {
           const normalized = base.replace(/\\/g, '/')
           return `file://${normalized}/${relativePath}`

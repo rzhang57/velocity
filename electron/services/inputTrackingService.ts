@@ -25,9 +25,9 @@ interface HookCallbacks {
 }
 
 interface NativeHookInstance {
-  on: (eventName: string, cb: (event: any) => void) => void;
-  off?: (eventName: string, cb: (event: any) => void) => void;
-  removeListener?: (eventName: string, cb: (event: any) => void) => void;
+  on: (eventName: string, cb: (event: unknown) => void) => void;
+  off?: (eventName: string, cb: (event: unknown) => void) => void;
+  removeListener?: (eventName: string, cb: (event: unknown) => void) => void;
   removeAllListeners?: (eventName?: string) => void;
   start: () => void;
   stop: () => void;
@@ -35,13 +35,13 @@ interface NativeHookInstance {
 
 class NativeHookProvider {
   private hook: NativeHookInstance | null = null;
-  private handlers: Array<{ name: string; cb: (event: any) => void }> = [];
+  private handlers: Array<{ name: string; cb: (event: unknown) => void }> = [];
 
   start(callbacks: HookCallbacks): { success: boolean; message?: string } {
     const require = createRequire(import.meta.url);
-    let mod: any;
+    let mod: Record<string, unknown>;
     try {
-      mod = require("uiohook-napi");
+      mod = require("uiohook-napi") as Record<string, unknown>;
     } catch {
       return { success: false, message: "uiohook-napi is not installed" };
     }
@@ -53,11 +53,11 @@ class NativeHookProvider {
 
     this.hook = hook;
     this.handlers = [
-      { name: "mousedown", cb: callbacks.onMouseDown },
-      { name: "mouseup", cb: callbacks.onMouseUp },
-      { name: "mousemove", cb: callbacks.onMouseMove },
-      { name: "wheel", cb: callbacks.onWheel },
-      { name: "keydown", cb: callbacks.onKeyDown },
+      { name: "mousedown", cb: (e: unknown) => callbacks.onMouseDown(e as Parameters<typeof callbacks.onMouseDown>[0]) },
+      { name: "mouseup", cb: (e: unknown) => callbacks.onMouseUp(e as Parameters<typeof callbacks.onMouseUp>[0]) },
+      { name: "mousemove", cb: (e: unknown) => callbacks.onMouseMove(e as Parameters<typeof callbacks.onMouseMove>[0]) },
+      { name: "wheel", cb: (e: unknown) => callbacks.onWheel(e as Parameters<typeof callbacks.onWheel>[0]) },
+      { name: "keydown", cb: (e: unknown) => callbacks.onKeyDown(e as Parameters<typeof callbacks.onKeyDown>[0]) },
     ];
 
     try {

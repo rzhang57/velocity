@@ -49,6 +49,14 @@ interface AnimationState {
   focusY: number;
 }
 
+interface LayoutCache {
+  stageSize: { width: number; height: number };
+  videoSize: { width: number; height: number };
+  baseScale: number;
+  baseOffset: { x: number; y: number };
+  maskRect: { x: number; y: number; width: number; height: number };
+}
+
 // Renders video frames with all effects (background, zoom, crop, blur, shadow) to an offscreen canvas for export.
 
 export class FrameRenderer {
@@ -65,7 +73,7 @@ export class FrameRenderer {
   private compositeCtx: CanvasRenderingContext2D | null = null;
   private config: FrameRenderConfig;
   private animationState: AnimationState;
-  private layoutCache: any = null;
+  private layoutCache: LayoutCache | null = null;
   private currentVideoTime = 0;
   private cameraElement: HTMLVideoElement | null = null;
   private cameraReady = false;
@@ -94,7 +102,7 @@ export class FrameRenderer {
     // Try to set colorSpace if supported (may not be available on all platforms)
     try {
       if (canvas && 'colorSpace' in canvas) {
-        // @ts-ignore
+        // @ts-expect-error - colorSpace not in TypeScript definitions but works at runtime
         canvas.colorSpace = 'srgb';
       }
     } catch (error) {
@@ -122,7 +130,7 @@ export class FrameRenderer {
     this.trailGraphics = new Graphics();
     this.cameraContainer.addChild(this.trailGraphics);
     this.cursorEraserGraphics = new Graphics();
-    this.cursorEraserGraphics.blendMode = 'erase' as any;
+    this.cursorEraserGraphics.blendMode = 'erase';
     this.videoContainer.addChild(this.cursorEraserGraphics);
     this.cursorGraphics = new Graphics();
     this.cameraContainer.addChild(this.cursorGraphics);
@@ -356,8 +364,8 @@ export class FrameRenderer {
       bgCtx.fillRect(0, 0, this.config.width, this.config.height);
     }
 
-    // Store the background canvas for compositing
-    this.backgroundSprite = bgCanvas as any;
+    // Store the background canvas for compositing (repurposing the Sprite slot to hold an HTMLCanvasElement)
+    this.backgroundSprite = bgCanvas as unknown as Sprite;
   }
 
   async renderFrame(videoFrame: VideoFrame, timestamp: number): Promise<void> {
@@ -370,13 +378,13 @@ export class FrameRenderer {
 
     // Create or update video sprite from VideoFrame
     if (!this.videoSprite) {
-      const texture = Texture.from(videoFrame as any);
+      const texture = Texture.from(videoFrame as unknown as HTMLVideoElement);
       this.videoSprite = new Sprite(texture);
       this.videoContainer.addChild(this.videoSprite);
     } else {
       // Destroy old texture to avoid memory leaks, then create new one
       const oldTexture = this.videoSprite.texture;
-      const newTexture = Texture.from(videoFrame as any);
+      const newTexture = Texture.from(videoFrame as unknown as HTMLVideoElement);
       this.videoSprite.texture = newTexture;
       oldTexture.destroy(true);
     }
@@ -499,7 +507,7 @@ export class FrameRenderer {
 
   private clampFocusToStage(focus: { cx: number; cy: number }, depth: number): { cx: number; cy: number } {
     if (!this.layoutCache) return focus;
-    return clampFocusToStageUtil(focus, depth as any, this.layoutCache);
+    return clampFocusToStageUtil(focus, depth, this.layoutCache);
   }
 
   private updateAnimationState(timeMs: number): number {
@@ -578,7 +586,7 @@ export class FrameRenderer {
 
     // Step 1: Draw background layer (with optional blur, not affected by zoom)
     if (this.backgroundSprite) {
-      const bgCanvas = this.backgroundSprite as any as HTMLCanvasElement;
+      const bgCanvas = this.backgroundSprite as unknown as HTMLCanvasElement;
       
       if (this.config.showBlur) {
         ctx.save();

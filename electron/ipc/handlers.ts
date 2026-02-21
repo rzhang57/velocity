@@ -13,9 +13,9 @@ import type { NativeCaptureStartPayload, NativeCaptureStopPayload } from '@/type
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
-let selectedSource: any = null
+let selectedSource: { id?: string; display_id?: string; name?: string } | null = null
 let currentVideoPath: string | null = null
-let currentRecordingSession: any = null
+let currentRecordingSession: Record<string, unknown> | null = null
 const inputTrackingService = new InputTrackingService()
 const nativeCaptureService = new NativeCaptureService()
 const DEFAULT_EXPORTS_DIR = path.join(app.getPath('documents'), 'velocity exports')
@@ -364,6 +364,7 @@ export function registerIpcHandlers(
     try {
       await fs.unlink(videoPath)
     } catch {
+      // intentional: ignore error if file doesn't exist
     }
     await fs.rename(tempOutputPath, videoPath)
     return { success: true, outputPath: videoPath }
@@ -374,7 +375,7 @@ export function registerIpcHandlers(
     let candidate = path.join(directoryPath, fileName)
     let suffix = 1
 
-    while (true) {
+    for (;;) {
       try {
         await fs.access(candidate)
         candidate = path.join(directoryPath, `${parsed.name} (${suffix})${parsed.ext}`)

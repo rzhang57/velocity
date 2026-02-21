@@ -74,7 +74,7 @@ export function CropControl({ videoElement, cropRegion, onCropChange }: CropCont
     const deltaX = currentX - dragStart.x;
     const deltaY = currentY - dragStart.y;
 
-    let newCrop = { ...initialCrop };
+    const newCrop = { ...initialCrop };
 
     switch (isDragging) {
       case 'top': {
@@ -107,6 +107,7 @@ export function CropControl({ videoElement, cropRegion, onCropChange }: CropCont
       try {
         e.currentTarget.releasePointerCapture(e.pointerId);
       } catch {
+        // intentional: releasePointerCapture may fail if pointer was already released
       }
     }
     setIsDragging(null);

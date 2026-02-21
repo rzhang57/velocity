@@ -187,7 +187,7 @@ export class VideoExporter {
           const canvas = this.renderer!.getCanvas();
 
           // Create VideoFrame from canvas on GPU without reading pixels
-          // @ts-ignore - colorSpace not in TypeScript definitions but works at runtime
+          // @ts-expect-error - colorSpace not in TypeScript definitions but works at runtime
           const exportFrame = new VideoFrame(canvas, {
             timestamp,
             duration: frameDuration,
@@ -300,7 +300,7 @@ export class VideoExporter {
         // Capture decoder config metadata from encoder output
         if (meta?.decoderConfig?.description && !videoDescription) {
           const desc = meta.decoderConfig.description;
-          videoDescription = new Uint8Array(desc instanceof ArrayBuffer ? desc : (desc as any));
+          videoDescription = new Uint8Array(desc instanceof ArrayBuffer ? desc : (desc as unknown as ArrayBufferView).buffer);
           this.videoDescription = videoDescription;
         }
         // Capture colorSpace from encoder metadata if provided

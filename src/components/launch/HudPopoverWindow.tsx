@@ -222,6 +222,7 @@ export function HudPopoverWindow() {
                     try {
                       localStorage.removeItem(RECORDING_NOTICE_STORAGE_KEY);
                     } catch {
+                      // intentional: ignore storage errors
                     }
                     setRecordingNotice(null);
                   }}

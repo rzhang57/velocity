@@ -9,7 +9,7 @@ import { useState } from "react";
 import Block from '@uiw/react-color-block';
 import { Trash2, Download, Crop, X, Bug, Upload, Star, Film, Image, Sparkles, Palette, FolderOpen, FolderSearch } from "lucide-react";
 import { toast } from "sonner";
-import { getZoomScale, ZOOM_DEPTH_MAX, ZOOM_DEPTH_MIN, ZOOM_DEPTH_STEP, type ZoomDepth, type CropRegion, type AnnotationRegion, type AnnotationType } from "./types";
+import { getZoomScale, ZOOM_DEPTH_MAX, ZOOM_DEPTH_MIN, ZOOM_DEPTH_STEP, type ZoomDepth, type CropRegion, type AnnotationRegion, type AnnotationType, type FigureData } from "./types";
 import { CropControl } from "./CropControl";
 import { KeyboardShortcutsHelp } from "./KeyboardShortcutsHelp";
 import { AnnotationSettingsPanel } from "./AnnotationSettingsPanel";
@@ -100,7 +100,7 @@ interface SettingsPanelProps {
   onAnnotationContentChange?: (id: string, content: string) => void;
   onAnnotationTypeChange?: (id: string, type: AnnotationType) => void;
   onAnnotationStyleChange?: (id: string, style: Partial<AnnotationRegion['style']>) => void;
-  onAnnotationFigureDataChange?: (id: string, figureData: any) => void;
+  onAnnotationFigureDataChange?: (id: string, figureData: FigureData) => void;
   onAnnotationDelete?: (id: string) => void;
 }
 
@@ -531,7 +531,9 @@ export function SettingsPanel({
                             const clean = (s: string) => s.replace(/^file:\/\//, '').replace(/^\//, '')
                             if (clean(selected).endsWith(clean(path))) return true;
                             if (clean(path).endsWith(clean(selected))) return true;
-                          } catch {}
+                          } catch {
+                            // intentional: ignore path comparison errors
+                          }
                           return false;
                         })();
                         return (

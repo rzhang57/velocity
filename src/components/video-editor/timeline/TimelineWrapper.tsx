@@ -32,7 +32,6 @@ export default function TimelineWrapper({
   onRangeChange,
   minItemDurationMs,
   minVisibleRangeMs,
-  gridSizeMs: _gridSizeMs,
   onItemSpanChange,
   allRegionSpans = [],
 }: TimelineWrapperProps) {

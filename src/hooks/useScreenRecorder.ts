@@ -67,13 +67,14 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
     try {
       localStorage.setItem(RECORDING_NOTICE_STORAGE_KEY, message);
     } catch {
+      // intentional: ignore storage errors
     }
-
   };
   const clearRecordingNotice = () => {
     try {
       localStorage.removeItem(RECORDING_NOTICE_STORAGE_KEY);
     } catch {
+      // intentional: ignore storage errors
     }
   };
 
@@ -141,6 +142,7 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
               advanced: [{ cursor: "never" }],
             } as unknown) as MediaTrackConstraints);
           } catch {
+            // intentional: cursor constraint may not be supported on all platforms
           }
         }
         return displayStream;
@@ -154,7 +156,7 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
     if (customCursorEnabled) {
       captureCursorOptional.push({ googCaptureCursor: false });
     }
-    return await (navigator.mediaDevices as any).getUserMedia({
+    return await (navigator.mediaDevices as unknown as { getUserMedia: (constraints: Record<string, unknown>) => Promise<MediaStream> }).getUserMedia({
       audio: false,
       video: {
         cursor: fallbackCursorMode,
