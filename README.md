@@ -44,7 +44,7 @@ npm run build:linux # linux
 ```
 
 ## credit/ shoutout
-this repo is a fork of the original project by siddharthvaddem, which served as a strong initial foundation for the project. check it out!
+this repo is a fork of the original project, openscreen, by [siddharthvaddem](https://github.com/siddharthvaddem/openscreen), which served as a strong initial foundation for the project. check it out!
 
 ## license
 this project is licensed under the [MIT License](./LICENSE). by using this software, you agree that the authors are not liable for any issues, damages, or claims arising from its use.
