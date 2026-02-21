@@ -25,6 +25,7 @@ import {
 
 interface VideoPlaybackProps {
   videoPath: string;
+  previewScale?: number;
   cameraVideoPath?: string;
   cameraStartOffsetMs?: number;
   cameraHiddenRegions?: CameraHiddenRegion[];
@@ -73,6 +74,7 @@ export interface VideoPlaybackRef {
 
 const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(({
   videoPath,
+  previewScale = 1,
   cameraVideoPath,
   cameraStartOffsetMs = 0,
   cameraHiddenRegions = [],
@@ -579,7 +581,7 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(({
         height: container.clientHeight,
         backgroundAlpha: 0,
         antialias: true,
-        resolution: window.devicePixelRatio || 1,
+        resolution: Math.max(0.25, (window.devicePixelRatio || 1) * previewScale),
         autoDensity: true,
       });
 
@@ -633,7 +635,7 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(({
       customCursorGraphicsRef.current = null;
       cursorEraserGraphicsRef.current = null;
     };
-  }, []);
+  }, [previewScale]);
 
   useEffect(() => {
     const video = videoRef.current;

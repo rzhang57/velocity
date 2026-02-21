@@ -67,6 +67,8 @@ interface SettingsPanelProps {
   customCursorEnabled?: boolean;
   customCursorSize?: number;
   onCustomCursorSizeChange?: (value: number) => void;
+  previewQuality?: 'full' | 'half' | 'quarter';
+  onPreviewQualityChange?: (quality: 'full' | 'half' | 'quarter') => void;
   borderRadius?: number;
   onBorderRadiusChange?: (radius: number) => void;
   padding?: number;
@@ -125,6 +127,8 @@ export function SettingsPanel({
   customCursorEnabled = false,
   customCursorSize = 1,
   onCustomCursorSizeChange,
+  previewQuality = 'full',
+  onPreviewQualityChange,
   borderRadius = 0, 
   onBorderRadiusChange, 
   padding = 50, 
@@ -335,6 +339,31 @@ export function SettingsPanel({
               </div>
             </AccordionTrigger>
             <AccordionContent className="pb-3">
+              <div className="p-2 rounded-lg bg-white/5 border border-white/5 mb-3">
+                <div className="flex items-center justify-between mb-1">
+                  <div className="text-[10px] font-medium text-slate-300">Preview Quality</div>
+                </div>
+                <div className="bg-white/5 border border-white/10 p-0.5 w-full grid grid-cols-3 h-7 rounded-lg">
+                  {([
+                    { value: 'full', label: 'Full' },
+                    { value: 'half', label: 'Half' },
+                    { value: 'quarter', label: 'Quarter' },
+                  ] as const).map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => onPreviewQualityChange?.(option.value)}
+                      className={cn(
+                        "rounded-md transition-all text-[10px] font-medium",
+                        previewQuality === option.value ? "bg-white text-black" : "text-slate-400 hover:text-slate-200"
+                      )}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               <div className="grid grid-cols-2 gap-2 mb-3">
                 <div className="flex items-center justify-between p-2 rounded-lg bg-white/5 border border-white/5">
                   <div className="text-[10px] font-medium text-slate-300">Motion Blur</div>
@@ -752,7 +781,7 @@ export function SettingsPanel({
           <button
             type="button"
             onClick={() => {
-              window.electronAPI?.openExternalUrl('https://github.com/siddharthvaddem/openscreen/issues/new/choose');
+              window.electronAPI?.openExternalUrl('https://github.com/siddharthvaddem/velocity/issues/new/choose');
             }}
             className="flex-1 flex items-center justify-center gap-1.5 text-[10px] text-slate-500 hover:text-slate-300 py-1.5 transition-colors"
           >
@@ -762,7 +791,7 @@ export function SettingsPanel({
           <button
             type="button"
             onClick={() => {
-              window.electronAPI?.openExternalUrl('https://github.com/siddharthvaddem/openscreen');
+              window.electronAPI?.openExternalUrl('https://github.com/siddharthvaddem/velocity');
             }}
             className="flex-1 flex items-center justify-center gap-1.5 text-[10px] text-slate-500 hover:text-slate-300 py-1.5 transition-colors"
           >

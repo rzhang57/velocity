@@ -7,6 +7,7 @@ export interface RecordingSession {
   cameraVideoPath?: string;
   micEnabled: boolean;
   micCaptured: boolean;
+  micStartOffsetMs?: number;
   cameraEnabled: boolean;
   cameraCaptured: boolean;
   cameraStartOffsetMs?: number;

@@ -7,6 +7,8 @@ export interface DecodedVideoInfo {
   duration: number; // seconds
   frameRate: number;
   codec: string;
+  hasAudio: boolean;
+  audioCodec?: string;
 }
 
 /** Caller must close the VideoFrame after use. */
@@ -14,6 +16,10 @@ type OnFrameCallback = (
   frame: VideoFrame,
   exportTimestampUs: number,
   sourceTimestampMs: number
+) => Promise<void>;
+
+type OnAudioChunkCallback = (
+  chunk: EncodedAudioChunk
 ) => Promise<void>;
 
 /**
@@ -42,6 +48,7 @@ export class StreamingVideoDecoder {
 
     const mediaInfo = await this.demuxer.getMediaInfo();
     const videoStream = mediaInfo.streams.find(s => s.codec_type_string === 'video');
+    const audioStream = mediaInfo.streams.find(s => s.codec_type_string === 'audio');
 
     let frameRate = 60;
     if (videoStream?.avg_frame_rate) {
@@ -59,6 +66,10 @@ export class StreamingVideoDecoder {
       duration: mediaInfo.duration,
       frameRate,
       codec: videoStream?.codec_string || 'unknown',
+      hasAudio: Boolean(audioStream),
+      audioCodec: typeof audioStream?.codec_name === 'string'
+        ? audioStream.codec_name
+        : (typeof audioStream?.codec_string === 'string' ? audioStream.codec_string : undefined),
     };
 
     return this.metadata;
@@ -217,6 +228,78 @@ export class StreamingVideoDecoder {
       this.decoder.close();
     }
     this.decoder = null;
+  }
+
+  async copyAudio(
+    trimRegions: TrimRegion[] | undefined,
+    onChunk: OnAudioChunkCallback
+  ): Promise<void> {
+    if (!this.demuxer || !this.metadata || !this.metadata.hasAudio) {
+      return;
+    }
+
+    const segments = this.computeSegments(this.metadata.duration, trimRegions);
+    if (segments.length === 0) {
+      return;
+    }
+    const segmentUs = segments.map((segment) => ({
+      startUs: Math.round(segment.startSec * 1_000_000),
+      endUs: Math.round(segment.endSec * 1_000_000),
+    }));
+    const cumulativeOffsetUs: number[] = [];
+    let cursorUs = 0;
+    for (const segment of segmentUs) {
+      cumulativeOffsetUs.push(cursorUs);
+      cursorUs += Math.max(0, segment.endUs - segment.startUs);
+    }
+
+    const mapSourceToExportUs = (sourceUs: number): number | null => {
+      for (let i = 0; i < segmentUs.length; i++) {
+        const segment = segmentUs[i];
+        if (sourceUs < segment.startUs) continue;
+        if (sourceUs >= segment.endUs) continue;
+        return cumulativeOffsetUs[i] + (sourceUs - segment.startUs);
+      }
+      return null;
+    };
+
+    const reader = this.demuxer.read('audio').getReader();
+    try {
+      while (!this.cancelled) {
+        const { done, value } = await reader.read();
+        if (done || !value) break;
+
+        const chunk = value as EncodedAudioChunk;
+        if (typeof chunk.timestamp !== 'number' || typeof chunk.byteLength !== 'number') {
+          continue;
+        }
+
+        const sourceTimestampUs = chunk.timestamp;
+        const durationUs = typeof chunk.duration === 'number' ? chunk.duration : 0;
+        const samplePointUs = sourceTimestampUs + Math.floor(durationUs / 2);
+        const mappedSampleUs = mapSourceToExportUs(samplePointUs);
+        if (mappedSampleUs == null) {
+          continue;
+        }
+        const mappedTimestampUs = Math.max(0, mappedSampleUs - Math.floor(durationUs / 2));
+
+        const bytes = new Uint8Array(chunk.byteLength);
+        chunk.copyTo(bytes);
+        const remappedChunk = new EncodedAudioChunk({
+          type: chunk.type,
+          timestamp: mappedTimestampUs,
+          duration: durationUs > 0 ? durationUs : undefined,
+          data: bytes,
+        });
+
+        await onChunk(remappedChunk);
+      }
+    } finally {
+      try {
+        await reader.cancel();
+      } catch {
+      }
+    }
   }
 
   private async decodeUntrimmed(

@@ -52,6 +52,17 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
   const nativeCaptureActiveRef = useRef(false);
   const nativeCustomCursorEnabledRef = useRef(true);
   const nativeRecordingEncoderRef = useRef<RecordingEncoder>("h264_libx264");
+  const nativeOptionsRef = useRef<RecorderOptions | null>(null);
+  const nativeCaptureProfileRef = useRef<CaptureProfile | null>(null);
+  const nativeMicRecorderRef = useRef<MediaRecorder | null>(null);
+  const nativeMicStreamRef = useRef<MediaStream | null>(null);
+  const nativeMicChunksRef = useRef<Blob[]>([]);
+  const nativeCameraRecorderRef = useRef<MediaRecorder | null>(null);
+  const nativeCameraStreamRef = useRef<MediaStream | null>(null);
+  const nativeCameraChunksRef = useRef<Blob[]>([]);
+  const nativeCameraStartTimeRef = useRef<number | null>(null);
+  const nativeMicStartTimeRef = useRef<number | null>(null);
+  const nativeScreenStartTimeRef = useRef<number | null>(null);
   const setRecordingNotice = (message: string) => {
     try {
       localStorage.setItem(RECORDING_NOTICE_STORAGE_KEY, message);
@@ -93,6 +104,14 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
     ];
 
     return preferred.find(type => MediaRecorder.isTypeSupported(type)) ?? "video/webm";
+  };
+
+  const selectAudioMimeType = () => {
+    const preferred = [
+      "audio/webm;codecs=opus",
+      "audio/webm",
+    ];
+    return preferred.find(type => MediaRecorder.isTypeSupported(type)) ?? "audio/webm";
   };
 
   const createDesktopCaptureStream = async (
@@ -178,14 +197,220 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
       cameraStream.current.getTracks().forEach(track => track.stop());
       cameraStream.current = null;
     }
+    if (nativeMicStreamRef.current) {
+      nativeMicStreamRef.current.getTracks().forEach(track => track.stop());
+      nativeMicStreamRef.current = null;
+    }
+    if (nativeCameraStreamRef.current) {
+      nativeCameraStreamRef.current.getTracks().forEach(track => track.stop());
+      nativeCameraStreamRef.current = null;
+    }
+  };
+
+  const startNativeAuxiliaryCapture = async (options: RecorderOptions) => {
+    nativeMicChunksRef.current = [];
+    nativeCameraChunksRef.current = [];
+    nativeMicStartTimeRef.current = null;
+    nativeCameraStartTimeRef.current = null;
+    nativeMicRecorderRef.current = null;
+    nativeCameraRecorderRef.current = null;
+
+    if (options.micEnabled) {
+      try {
+        const micMode = options.micProcessingMode ?? "cleaned";
+        const processed = micMode === "cleaned";
+        nativeMicStreamRef.current = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            deviceId: options.micDeviceId ? { exact: options.micDeviceId } : undefined,
+            echoCancellation: processed,
+            noiseSuppression: processed,
+            autoGainControl: processed,
+            channelCount: 1,
+            sampleRate: 48000,
+          },
+          video: false,
+        });
+        const micMimeType = selectAudioMimeType();
+        const micRecorder = new MediaRecorder(nativeMicStreamRef.current, {
+          mimeType: micMimeType,
+          audioBitsPerSecond: micMode === "raw" ? 256_000 : 192_000,
+        });
+        micRecorder.ondataavailable = (e) => {
+          if (e.data && e.data.size > 0) nativeMicChunksRef.current.push(e.data);
+        };
+        nativeMicStartTimeRef.current = Date.now();
+        micRecorder.start(1000);
+        nativeMicRecorderRef.current = micRecorder;
+      } catch (error) {
+        console.warn("Native mode microphone capture unavailable. Continuing without microphone.", error);
+      }
+    }
+
+    if (options.cameraEnabled) {
+      try {
+        if (options.cameraPreviewStream && options.cameraPreviewStream.getVideoTracks().length > 0) {
+          nativeCameraStreamRef.current = options.cameraPreviewStream.clone();
+        } else {
+          nativeCameraStreamRef.current = await navigator.mediaDevices.getUserMedia({
+            audio: false,
+            video: {
+              deviceId: options.cameraDeviceId ? { exact: options.cameraDeviceId } : undefined,
+              width: { ideal: 1280 },
+              height: { ideal: 720 },
+              frameRate: { ideal: 30, max: 60 },
+            },
+          });
+        }
+
+        const nativeCameraMimeType = selectMimeType();
+        const cameraTrackSettings = nativeCameraStreamRef.current.getVideoTracks()[0]?.getSettings();
+        const camWidth = Math.floor((cameraTrackSettings?.width || 1280) / 2) * 2;
+        const camHeight = Math.floor((cameraTrackSettings?.height || 720) / 2) * 2;
+        const cameraRecorder = new MediaRecorder(nativeCameraStreamRef.current, {
+          mimeType: nativeCameraMimeType,
+          videoBitsPerSecond: computeBitrate(camWidth, camHeight, 60),
+        });
+        cameraRecorder.ondataavailable = (e) => {
+          if (e.data && e.data.size > 0) nativeCameraChunksRef.current.push(e.data);
+        };
+        nativeCameraStartTimeRef.current = Date.now();
+        cameraRecorder.start(1000);
+        nativeCameraRecorderRef.current = cameraRecorder;
+      } catch (error) {
+        console.warn("Native mode camera capture unavailable. Continuing without camera.", error);
+      }
+    }
+  };
+
+  const cancelNativeAuxiliaryCapture = () => {
+    if (nativeMicRecorderRef.current && nativeMicRecorderRef.current.state !== "inactive") {
+      nativeMicRecorderRef.current.stop();
+    }
+    if (nativeCameraRecorderRef.current && nativeCameraRecorderRef.current.state !== "inactive") {
+      nativeCameraRecorderRef.current.stop();
+    }
+    nativeMicRecorderRef.current = null;
+    nativeCameraRecorderRef.current = null;
+    nativeMicChunksRef.current = [];
+    nativeCameraChunksRef.current = [];
+    nativeMicStartTimeRef.current = null;
+    nativeCameraStartTimeRef.current = null;
+    nativeScreenStartTimeRef.current = null;
+    if (nativeMicStreamRef.current) {
+      nativeMicStreamRef.current.getTracks().forEach((track) => track.stop());
+      nativeMicStreamRef.current = null;
+    }
+    if (nativeCameraStreamRef.current) {
+      nativeCameraStreamRef.current.getTracks().forEach((track) => track.stop());
+      nativeCameraStreamRef.current = null;
+    }
+  };
+
+  const stopNativeAuxiliaryCapture = async () => {
+    const cameraMimeType = selectMimeType();
+    const stopMicPromise = new Promise<Blob | null>((resolve) => {
+      const recorder = nativeMicRecorderRef.current;
+      if (!recorder) {
+        resolve(null);
+        return;
+      }
+      if (recorder.state === "inactive") {
+        if (nativeMicChunksRef.current.length === 0) {
+          resolve(null);
+          return;
+        }
+        const micBlob = new Blob(nativeMicChunksRef.current, { type: selectAudioMimeType() });
+        nativeMicChunksRef.current = [];
+        resolve(micBlob);
+        return;
+      }
+      recorder.onstop = () => {
+        if (nativeMicChunksRef.current.length === 0) {
+          resolve(null);
+          return;
+        }
+        const micBlob = new Blob(nativeMicChunksRef.current, { type: selectAudioMimeType() });
+        nativeMicChunksRef.current = [];
+        resolve(micBlob);
+      };
+      recorder.stop();
+    });
+
+    const stopCameraPromise = new Promise<Blob | null>((resolve) => {
+      const recorder = nativeCameraRecorderRef.current;
+      const startedAt = nativeCameraStartTimeRef.current;
+      if (!recorder || !startedAt) {
+        resolve(null);
+        return;
+      }
+      if (recorder.state === "inactive") {
+        if (nativeCameraChunksRef.current.length === 0) {
+          resolve(null);
+          return;
+        }
+        const cameraDuration = Math.max(0, Date.now() - startedAt);
+        const cameraBlob = new Blob(nativeCameraChunksRef.current, { type: cameraMimeType });
+        nativeCameraChunksRef.current = [];
+        fixWebmDuration(cameraBlob, cameraDuration)
+          .then((fixed) => resolve(fixed))
+          .catch(() => resolve(cameraBlob));
+        return;
+      }
+      recorder.onstop = async () => {
+        if (nativeCameraChunksRef.current.length === 0) {
+          resolve(null);
+          return;
+        }
+        const cameraDuration = Math.max(0, Date.now() - startedAt);
+        const cameraBlob = new Blob(nativeCameraChunksRef.current, { type: cameraMimeType });
+        nativeCameraChunksRef.current = [];
+        try {
+          resolve(await fixWebmDuration(cameraBlob, cameraDuration));
+        } catch {
+          resolve(cameraBlob);
+        }
+      };
+      recorder.stop();
+    });
+
+    const [micBlob, cameraBlob] = await Promise.all([stopMicPromise, stopCameraPromise]);
+    nativeMicRecorderRef.current = null;
+    nativeCameraRecorderRef.current = null;
+
+    const screenStartAt = nativeScreenStartTimeRef.current ?? startTime.current;
+    const micStartOffsetMs = nativeMicStartTimeRef.current
+      ? nativeMicStartTimeRef.current - screenStartAt
+      : undefined;
+    const cameraStartOffsetMs = nativeCameraStartTimeRef.current
+      ? Math.max(0, nativeCameraStartTimeRef.current - screenStartAt)
+      : undefined;
+    const cameraDurationMs = cameraBlob && nativeCameraStartTimeRef.current
+      ? Math.max(0, Date.now() - nativeCameraStartTimeRef.current)
+      : undefined;
+
+    if (nativeMicStreamRef.current) {
+      nativeMicStreamRef.current.getTracks().forEach((track) => track.stop());
+      nativeMicStreamRef.current = null;
+    }
+    if (nativeCameraStreamRef.current) {
+      nativeCameraStreamRef.current.getTracks().forEach((track) => track.stop());
+      nativeCameraStreamRef.current = null;
+    }
+    nativeMicStartTimeRef.current = null;
+    nativeCameraStartTimeRef.current = null;
+    nativeScreenStartTimeRef.current = null;
+
+    return { micBlob, cameraBlob, micStartOffsetMs, cameraStartOffsetMs, cameraDurationMs };
   };
 
   const stopNativeCaptureFlow = async () => {
     const sessionId = sessionIdRef.current;
     setRecording(false);
     window.electronAPI?.setRecordingState(false);
-    stopAllTracks();
 
+    const options = nativeOptionsRef.current;
+    const requestedProfile = nativeCaptureProfileRef.current;
+    const auxiliaryResultPromise = stopNativeAuxiliaryCapture();
     let nativeResult: Awaited<ReturnType<typeof window.electronAPI.nativeCaptureStop>> | null = null;
     let inputTelemetry: InputTelemetryFileV1 | undefined;
     try {
@@ -208,8 +433,12 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
       console.warn("[auto-zoom][telemetry] stopInputTracking failed after native capture", error);
     }
 
+    const auxiliaryResult = await auxiliaryResultPromise;
+
     if (!nativeResult?.success || !nativeResult.result?.outputPath) {
       console.error("[native-capture] No output from native capture stop", nativeResult);
+      nativeOptionsRef.current = null;
+      nativeCaptureProfileRef.current = null;
       return;
     }
 
@@ -219,18 +448,27 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
       screenVideoPath: nativeResult.result.outputPath,
       inputTelemetry,
       inputTelemetryFileName: inputTelemetry ? `${pathSafeSessionName(now)}.telemetry.json` : undefined,
+      micAudioData: auxiliaryResult.micBlob ? await auxiliaryResult.micBlob.arrayBuffer() : undefined,
+      micAudioFileName: auxiliaryResult.micBlob ? `${pathSafeSessionName(now)}.mic.webm` : undefined,
+      cameraVideoData: auxiliaryResult.cameraBlob ? await auxiliaryResult.cameraBlob.arrayBuffer() : undefined,
+      cameraFileName: auxiliaryResult.cameraBlob ? `${pathSafeSessionName(now)}.camera.webm` : undefined,
       session: {
         id: sessionId || `session-${now}`,
         startedAtMs: startTime.current,
-        micEnabled: false,
-        micCaptured: false,
-        cameraEnabled: false,
-        cameraCaptured: false,
+        micEnabled: Boolean(options?.micEnabled),
+        micDeviceId: options?.micDeviceId,
+        micProcessingMode: options?.micProcessingMode ?? "cleaned",
+        micCaptured: Boolean(auxiliaryResult.micBlob),
+        micStartOffsetMs: auxiliaryResult.micStartOffsetMs,
+        cameraEnabled: Boolean(options?.cameraEnabled),
+        cameraCaptured: Boolean(auxiliaryResult.cameraBlob),
+        cameraStartOffsetMs: auxiliaryResult.cameraStartOffsetMs,
         screenDurationMs: durationMs,
-        requestedCaptureFps: undefined,
+        cameraDurationMs: auxiliaryResult.cameraDurationMs,
+        requestedCaptureFps: requestedProfile?.fps,
         actualCaptureFps: nativeResult.result.fpsActual,
-        requestedCaptureWidth: undefined,
-        requestedCaptureHeight: undefined,
+        requestedCaptureWidth: requestedProfile?.width,
+        requestedCaptureHeight: requestedProfile?.height,
         actualCaptureWidth: nativeResult.result.width,
         actualCaptureHeight: nativeResult.result.height,
         autoZoomGeneratedAtMs: undefined,
@@ -244,8 +482,12 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
     const stored = await window.electronAPI.storeNativeRecordingSession(sessionPayload);
     if (!stored.success || !stored.session) {
       console.error("[native-capture] Failed to store native recording session", stored.message);
+      nativeOptionsRef.current = null;
+      nativeCaptureProfileRef.current = null;
       return;
     }
+    nativeOptionsRef.current = null;
+    nativeCaptureProfileRef.current = null;
     await window.electronAPI.setCurrentRecordingSession(stored.session);
     await window.electronAPI.switchToEditor();
   };
@@ -335,6 +577,8 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
       const canTryNativeCapture = typeof window.electronAPI?.nativeCaptureStart === "function";
       nativeCustomCursorEnabledRef.current = Boolean(options.customCursorEnabled);
       nativeRecordingEncoderRef.current = options.recordingEncoder || "h264_libx264";
+      nativeOptionsRef.current = options;
+      nativeCaptureProfileRef.current = captureProfile;
       const sourceType: NativeCaptureSource["type"] =
         typeof selectedSource.id === "string" && selectedSource.id.startsWith("window:")
           ? "window"
@@ -373,6 +617,8 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
             platform: (await window.electronAPI.getPlatform()) as "win32" | "darwin" | "linux",
           };
         };
+        await startNativeAuxiliaryCapture(options);
+        nativeScreenStartTimeRef.current = Date.now();
         const nativeStart = await window.electronAPI.nativeCaptureStart(await buildNativePayload(selectedEncoder));
         if (nativeStart.success) {
           nativeCaptureActiveRef.current = true;
@@ -384,6 +630,7 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
           && (selectedEncoder === "h264_nvenc" || selectedEncoder === "hevc_nvenc");
         if (canRetryWithX264) {
           console.warn("[native-capture] NVENC start failed with custom cursor, retrying with x264 (CPU)", nativeStart.message);
+          nativeScreenStartTimeRef.current = Date.now();
           const fallbackStart = await window.electronAPI.nativeCaptureStart(await buildNativePayload("h264_libx264"));
           if (fallbackStart.success) {
             nativeCaptureActiveRef.current = true;
@@ -395,6 +642,7 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
             return;
           }
         }
+        cancelNativeAuxiliaryCapture();
         if (options.customCursorEnabled) {
           console.error("[native-capture] start failed while custom cursor is enabled", nativeStart.message);
           setRecordingNotice(`Native recorder failed to start: ${nativeStart.message || "unknown error"}`);

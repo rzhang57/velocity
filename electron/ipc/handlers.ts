@@ -3,6 +3,7 @@ import { ipcMain, desktopCapturer, BrowserWindow, shell, app, dialog, screen, ty
 import fs from 'node:fs/promises'
 import fsSync from 'node:fs'
 import path from 'node:path'
+import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { RECORDINGS_DIR, VITE_DEV_SERVER_URL, RENDERER_DIST } from '../main'
 import { InputTrackingService } from '../services/inputTrackingService'
@@ -17,7 +18,7 @@ let currentVideoPath: string | null = null
 let currentRecordingSession: any = null
 const inputTrackingService = new InputTrackingService()
 const nativeCaptureService = new NativeCaptureService()
-const DEFAULT_EXPORTS_DIR = path.join(app.getPath('documents'), 'OpenScreen Exports')
+const DEFAULT_EXPORTS_DIR = path.join(app.getPath('documents'), 'velocity exports')
 type HudPopoverKind = 'recording' | 'media'
 type HudPopoverSide = 'top' | 'bottom'
 
@@ -295,6 +296,79 @@ export function registerIpcHandlers(
     await fs.mkdir(directoryPath, { recursive: true })
   }
 
+  const resolvePackagedFfmpegPath = () => (
+    app.isPackaged
+      ? path.join(process.resourcesPath, 'native-capture', process.platform, process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg')
+      : path.join(app.getAppPath(), 'native-capture-sidecar', 'bin', process.platform, process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg')
+  )
+
+  const muxAudioIntoVideo = async (videoPath: string, audioPath: string, audioOffsetMs = 0): Promise<{ success: boolean; outputPath?: string; message?: string }> => {
+    const ffmpegPath = resolvePackagedFfmpegPath()
+    if (!fsSync.existsSync(ffmpegPath)) {
+      return { success: false, message: 'ffmpeg executable not found for native audio muxing' }
+    }
+
+    const parsed = path.parse(videoPath)
+    const tempOutputPath = path.join(parsed.dir, `${parsed.name}.with-audio${parsed.ext || '.mp4'}`)
+    const ffmpegArgs = [
+      '-y',
+      '-i', videoPath,
+    ]
+    const normalizedOffsetSeconds = Math.abs(audioOffsetMs) / 1000
+    if (audioOffsetMs > 0 && normalizedOffsetSeconds > 0.001) {
+      ffmpegArgs.push('-itsoffset', normalizedOffsetSeconds.toFixed(3))
+    } else if (audioOffsetMs < 0 && normalizedOffsetSeconds > 0.001) {
+      ffmpegArgs.push('-ss', normalizedOffsetSeconds.toFixed(3))
+    }
+    ffmpegArgs.push(
+      '-i', audioPath,
+      '-map', '0:v:0',
+      '-map', '1:a:0',
+      '-c:v', 'copy',
+      '-c:a', 'aac',
+      '-b:a', '192k',
+      '-shortest',
+      tempOutputPath,
+    )
+
+    const muxResult = await new Promise<{ success: boolean; message?: string }>((resolve) => {
+      const child = spawn(ffmpegPath, ffmpegArgs, { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] })
+      let stderr = ''
+
+      child.stderr.setEncoding('utf8')
+      child.stderr.on('data', (chunk) => {
+        if (stderr.length < 4000) {
+          stderr += String(chunk)
+        }
+      })
+      child.on('error', (error) => {
+        resolve({ success: false, message: `ffmpeg failed to start: ${String(error)}` })
+      })
+      child.on('close', (code) => {
+        if (code === 0) {
+          resolve({ success: true })
+          return
+        }
+        resolve({
+          success: false,
+          message: `ffmpeg mux failed with exit code ${String(code)}${stderr ? `: ${stderr.trim()}` : ''}`,
+        })
+      })
+    })
+
+    if (!muxResult.success) {
+      await deleteFileIfExists(tempOutputPath)
+      return { success: false, message: muxResult.message }
+    }
+
+    try {
+      await fs.unlink(videoPath)
+    } catch {
+    }
+    await fs.rename(tempOutputPath, videoPath)
+    return { success: true, outputPath: videoPath }
+  }
+
   const getUniqueFilePath = async (directoryPath: string, fileName: string) => {
     const parsed = path.parse(fileName)
     let candidate = path.join(directoryPath, fileName)
@@ -544,18 +618,14 @@ export function registerIpcHandlers(
   })
 
   ipcMain.handle('native-capture-encoder-options', async () => {
-    const packagedFfmpeg = app.isPackaged
-      ? path.join(process.resourcesPath, 'native-capture', process.platform, process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg')
-      : path.join(app.getAppPath(), 'native-capture-sidecar', 'bin', process.platform, process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg')
+    const packagedFfmpeg = resolvePackagedFfmpegPath()
     const ffmpegPath = fsSync.existsSync(packagedFfmpeg) ? packagedFfmpeg : undefined
     const result = await nativeCaptureService.getEncoderOptions(ffmpegPath)
     return result
   })
 
   ipcMain.handle('native-capture-start', async (_, payload: NativeCaptureStartPayload) => {
-    const packagedFfmpeg = app.isPackaged
-      ? path.join(process.resourcesPath, 'native-capture', process.platform, process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg')
-      : path.join(app.getAppPath(), 'native-capture-sidecar', 'bin', process.platform, process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg')
+    const packagedFfmpeg = resolvePackagedFfmpegPath()
     const sourceDisplayId = payload.source?.displayId
       || (typeof selectedSource?.display_id === 'string' ? selectedSource.display_id : undefined)
     const captureRegion = payload.source?.type === 'screen'
@@ -786,6 +856,8 @@ export function registerIpcHandlers(
 
   ipcMain.handle('store-native-recording-session', async (_, payload: {
     screenVideoPath: string
+    micAudioData?: ArrayBuffer
+    micAudioFileName?: string
     cameraVideoData?: ArrayBuffer
     cameraFileName?: string
     inputTelemetry?: InputTelemetryFileV1
@@ -798,6 +870,28 @@ export function registerIpcHandlers(
         const targetName = `${path.parse(payload.screenVideoPath).name}.mp4`
         finalScreenVideoPath = await getUniqueFilePath(RECORDINGS_DIR, targetName)
         await fs.copyFile(payload.screenVideoPath, finalScreenVideoPath)
+      }
+
+      let micCaptured = typeof (payload.session as { micCaptured?: unknown }).micCaptured === 'boolean'
+        ? Boolean((payload.session as { micCaptured?: unknown }).micCaptured)
+        : false
+      const micStartOffsetMs = typeof (payload.session as { micStartOffsetMs?: unknown }).micStartOffsetMs === 'number'
+        ? Number((payload.session as { micStartOffsetMs?: unknown }).micStartOffsetMs)
+        : 0
+      let micAudioPath: string | undefined
+      if (payload.micAudioData && payload.micAudioFileName) {
+        micAudioPath = path.join(RECORDINGS_DIR, payload.micAudioFileName)
+        await fs.writeFile(micAudioPath, Buffer.from(payload.micAudioData))
+        const muxResult = await muxAudioIntoVideo(finalScreenVideoPath, micAudioPath, micStartOffsetMs)
+        if (muxResult.success) {
+          micCaptured = true
+        } else {
+          console.warn('[native-capture][main] Failed to mux microphone audio into native capture', {
+            screenVideoPath: finalScreenVideoPath,
+            micAudioPath,
+            message: muxResult.message,
+          })
+        }
       }
 
       let cameraVideoPath: string | undefined
@@ -815,8 +909,13 @@ export function registerIpcHandlers(
         inputTelemetry = payload.inputTelemetry
       }
 
-      const session = {
+      const normalizedSession = {
         ...payload.session,
+        micCaptured,
+      }
+
+      const session = {
+        ...normalizedSession,
         screenVideoPath: finalScreenVideoPath,
         ...(cameraVideoPath ? { cameraVideoPath } : {}),
         ...(inputTelemetryPath ? { inputTelemetryPath } : {}),
@@ -825,6 +924,7 @@ export function registerIpcHandlers(
 
       currentRecordingSession = session
       currentVideoPath = finalScreenVideoPath
+      await deleteFileIfExists(micAudioPath)
 
       return {
         success: true,

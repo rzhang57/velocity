@@ -1,6 +1,6 @@
 # Native Capture Sidecar (Windows backend)
 
-This sidecar provides OS-level recording orchestration for OpenScreen via stdio JSON IPC.
+This sidecar provides OS-level recording orchestration for velocity via stdio JSON IPC.
 
 ## Current backend
 

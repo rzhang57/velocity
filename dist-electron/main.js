@@ -6,8 +6,8 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import fs$1 from "node:fs/promises";
 import fs from "node:fs";
-import { createRequire } from "node:module";
 import { spawnSync, spawn } from "node:child_process";
+import { createRequire } from "node:module";
 const __dirname$2 = path.dirname(fileURLToPath(import.meta.url));
 const APP_ROOT = path.join(__dirname$2, "..");
 const VITE_DEV_SERVER_URL$1 = process.env["VITE_DEV_SERVER_URL"];
@@ -91,7 +91,7 @@ function createEditorWindow() {
     resizable: true,
     alwaysOnTop: false,
     skipTaskbar: false,
-    title: "OpenScreen",
+    title: "velocity",
     backgroundColor: "#000000",
     webPreferences: {
       preload: path.join(__dirname$2, "preload.mjs"),
@@ -804,7 +804,7 @@ let currentVideoPath = null;
 let currentRecordingSession = null;
 const inputTrackingService = new InputTrackingService();
 const nativeCaptureService = new NativeCaptureService();
-const DEFAULT_EXPORTS_DIR = path.join(app.getPath("documents"), "OpenScreen Exports");
+const DEFAULT_EXPORTS_DIR = path.join(app.getPath("documents"), "velocity exports");
 const hudSettings = {
   micEnabled: true,
   selectedMicDeviceId: "",
@@ -1007,6 +1007,75 @@ function registerIpcHandlers(createEditorWindow2, createHudOverlayWindow2, creat
   };
   const ensureDirectoryExists = async (directoryPath) => {
     await fs$1.mkdir(directoryPath, { recursive: true });
+  };
+  const resolvePackagedFfmpegPath = () => app.isPackaged ? path.join(process.resourcesPath, "native-capture", process.platform, process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg") : path.join(app.getAppPath(), "native-capture-sidecar", "bin", process.platform, process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg");
+  const muxAudioIntoVideo = async (videoPath, audioPath, audioOffsetMs = 0) => {
+    const ffmpegPath = resolvePackagedFfmpegPath();
+    if (!fs.existsSync(ffmpegPath)) {
+      return { success: false, message: "ffmpeg executable not found for native audio muxing" };
+    }
+    const parsed = path.parse(videoPath);
+    const tempOutputPath = path.join(parsed.dir, `${parsed.name}.with-audio${parsed.ext || ".mp4"}`);
+    const ffmpegArgs = [
+      "-y",
+      "-i",
+      videoPath
+    ];
+    const normalizedOffsetSeconds = Math.abs(audioOffsetMs) / 1e3;
+    if (audioOffsetMs > 0 && normalizedOffsetSeconds > 1e-3) {
+      ffmpegArgs.push("-itsoffset", normalizedOffsetSeconds.toFixed(3));
+    } else if (audioOffsetMs < 0 && normalizedOffsetSeconds > 1e-3) {
+      ffmpegArgs.push("-ss", normalizedOffsetSeconds.toFixed(3));
+    }
+    ffmpegArgs.push(
+      "-i",
+      audioPath,
+      "-map",
+      "0:v:0",
+      "-map",
+      "1:a:0",
+      "-c:v",
+      "copy",
+      "-c:a",
+      "aac",
+      "-b:a",
+      "192k",
+      "-shortest",
+      tempOutputPath
+    );
+    const muxResult = await new Promise((resolve) => {
+      const child = spawn(ffmpegPath, ffmpegArgs, { windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+      let stderr = "";
+      child.stderr.setEncoding("utf8");
+      child.stderr.on("data", (chunk) => {
+        if (stderr.length < 4e3) {
+          stderr += String(chunk);
+        }
+      });
+      child.on("error", (error) => {
+        resolve({ success: false, message: `ffmpeg failed to start: ${String(error)}` });
+      });
+      child.on("close", (code) => {
+        if (code === 0) {
+          resolve({ success: true });
+          return;
+        }
+        resolve({
+          success: false,
+          message: `ffmpeg mux failed with exit code ${String(code)}${stderr ? `: ${stderr.trim()}` : ""}`
+        });
+      });
+    });
+    if (!muxResult.success) {
+      await deleteFileIfExists(tempOutputPath);
+      return { success: false, message: muxResult.message };
+    }
+    try {
+      await fs$1.unlink(videoPath);
+    } catch {
+    }
+    await fs$1.rename(tempOutputPath, videoPath);
+    return { success: true, outputPath: videoPath };
   };
   const getUniqueFilePath = async (directoryPath, fileName) => {
     const parsed = path.parse(fileName);
@@ -1216,14 +1285,14 @@ function registerIpcHandlers(createEditorWindow2, createHudOverlayWindow2, creat
     return { success: true, settings: hudSettings };
   });
   ipcMain.handle("native-capture-encoder-options", async () => {
-    const packagedFfmpeg = app.isPackaged ? path.join(process.resourcesPath, "native-capture", process.platform, process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg") : path.join(app.getAppPath(), "native-capture-sidecar", "bin", process.platform, process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg");
+    const packagedFfmpeg = resolvePackagedFfmpegPath();
     const ffmpegPath = fs.existsSync(packagedFfmpeg) ? packagedFfmpeg : void 0;
     const result = await nativeCaptureService.getEncoderOptions(ffmpegPath);
     return result;
   });
   ipcMain.handle("native-capture-start", async (_, payload) => {
     var _a, _b;
-    const packagedFfmpeg = app.isPackaged ? path.join(process.resourcesPath, "native-capture", process.platform, process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg") : path.join(app.getAppPath(), "native-capture-sidecar", "bin", process.platform, process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg");
+    const packagedFfmpeg = resolvePackagedFfmpegPath();
     const sourceDisplayId = ((_a = payload.source) == null ? void 0 : _a.displayId) || (typeof (selectedSource == null ? void 0 : selectedSource.display_id) === "string" ? selectedSource.display_id : void 0);
     const captureRegion = ((_b = payload.source) == null ? void 0 : _b.type) === "screen" ? resolveCaptureRegionForDisplay(sourceDisplayId) : void 0;
     const normalizedPayload = {
@@ -1415,6 +1484,23 @@ function registerIpcHandlers(createEditorWindow2, createHudOverlayWindow2, creat
         finalScreenVideoPath = await getUniqueFilePath(RECORDINGS_DIR, targetName);
         await fs$1.copyFile(payload.screenVideoPath, finalScreenVideoPath);
       }
+      let micCaptured = typeof payload.session.micCaptured === "boolean" ? Boolean(payload.session.micCaptured) : false;
+      const micStartOffsetMs = typeof payload.session.micStartOffsetMs === "number" ? Number(payload.session.micStartOffsetMs) : 0;
+      let micAudioPath;
+      if (payload.micAudioData && payload.micAudioFileName) {
+        micAudioPath = path.join(RECORDINGS_DIR, payload.micAudioFileName);
+        await fs$1.writeFile(micAudioPath, Buffer.from(payload.micAudioData));
+        const muxResult = await muxAudioIntoVideo(finalScreenVideoPath, micAudioPath, micStartOffsetMs);
+        if (muxResult.success) {
+          micCaptured = true;
+        } else {
+          console.warn("[native-capture][main] Failed to mux microphone audio into native capture", {
+            screenVideoPath: finalScreenVideoPath,
+            micAudioPath,
+            message: muxResult.message
+          });
+        }
+      }
       let cameraVideoPath;
       if (payload.cameraVideoData && payload.cameraFileName) {
         cameraVideoPath = path.join(RECORDINGS_DIR, payload.cameraFileName);
@@ -1428,8 +1514,12 @@ function registerIpcHandlers(createEditorWindow2, createHudOverlayWindow2, creat
         await fs$1.writeFile(inputTelemetryPath, JSON.stringify(payload.inputTelemetry), "utf-8");
         inputTelemetry = payload.inputTelemetry;
       }
-      const session2 = {
+      const normalizedSession = {
         ...payload.session,
+        micCaptured
+      };
+      const session2 = {
+        ...normalizedSession,
         screenVideoPath: finalScreenVideoPath,
         ...cameraVideoPath ? { cameraVideoPath } : {},
         ...inputTelemetryPath ? { inputTelemetryPath } : {},
@@ -1437,6 +1527,7 @@ function registerIpcHandlers(createEditorWindow2, createHudOverlayWindow2, creat
       };
       currentRecordingSession = session2;
       currentVideoPath = finalScreenVideoPath;
+      await deleteFileIfExists(micAudioPath);
       return {
         success: true,
         session: session2,
@@ -1728,7 +1819,7 @@ function getTrayIcon(filename) {
 function updateTrayMenu(recording = false) {
   if (!tray) return;
   const trayIcon = recording ? recordingTrayIcon : defaultTrayIcon;
-  const trayToolTip = recording ? `Recording: ${selectedSourceName}` : "OpenScreen";
+  const trayToolTip = recording ? `Recording: ${selectedSourceName}` : "velocity";
   const menuTemplate = recording ? [
     {
       label: "Stop Recording",

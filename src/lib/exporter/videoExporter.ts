@@ -5,6 +5,7 @@ import { VideoMuxer } from './muxer';
 import type { ZoomRegion, CropRegion, TrimRegion, AnnotationRegion, CameraHiddenRegion } from '@/components/video-editor/types';
 import type { InputTelemetryFileV1 } from '@/types/inputTelemetry';
 import type { CustomCursorTelemetry } from '@/lib/cursor/customCursor';
+import type { AudioCodec } from 'mediabunny';
 
 interface VideoExporterConfig extends ExportConfig {
   videoUrl: string;
@@ -48,6 +49,7 @@ export class VideoExporter {
   // Track muxing promises for parallel processing
   private muxingPromises: Promise<void>[] = [];
   private chunkCount = 0;
+  private hasSourceAudio = false;
 
   constructor(config: VideoExporterConfig) {
     this.config = config;
@@ -85,6 +87,8 @@ export class VideoExporter {
       });
       this.streamingDecoder = new StreamingVideoDecoder();
       const videoInfo = await this.streamingDecoder.loadMetadata(this.config.videoUrl);
+      const sourceAudioCodec = this.resolveSourceAudioCodec(videoInfo.audioCodec);
+      this.hasSourceAudio = Boolean(videoInfo.hasAudio && sourceAudioCodec);
       this.config.onProgress?.({
         currentFrame: 0,
         totalFrames: 1,
@@ -120,7 +124,7 @@ export class VideoExporter {
         previewWidth: this.config.previewWidth,
         previewHeight: this.config.previewHeight,
       });
-      this.muxer = new VideoMuxer(this.config, false);
+      this.muxer = new VideoMuxer(this.config, this.hasSourceAudio, sourceAudioCodec ?? 'opus');
       this.config.onProgress?.({
         currentFrame: 0,
         totalFrames: 1,
@@ -223,6 +227,15 @@ export class VideoExporter {
           }
         }
       );
+
+      if (this.hasSourceAudio) {
+        await this.streamingDecoder.copyAudio(
+          this.config.trimRegions,
+          async (audioChunk) => {
+            await this.muxer!.addAudioChunk(audioChunk);
+          }
+        );
+      }
 
       if (this.cancelled) {
         return { success: false, error: 'Export cancelled' };
@@ -406,5 +419,19 @@ export class VideoExporter {
     this.chunkCount = 0;
     this.videoDescription = undefined;
     this.videoColorSpace = undefined;
+    this.hasSourceAudio = false;
+  }
+
+  private resolveSourceAudioCodec(codecName?: string): AudioCodec | null {
+    if (!codecName) {
+      return null;
+    }
+    const normalized = codecName.toLowerCase();
+    if (normalized.includes('opus')) return 'opus';
+    if (normalized.includes('aac') || normalized.includes('mp4a')) return 'aac';
+    if (normalized.includes('mp3')) return 'mp3';
+    if (normalized.includes('vorbis')) return 'vorbis';
+    if (normalized.includes('flac')) return 'flac';
+    return null;
   }
 }

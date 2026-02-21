@@ -146,6 +146,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   storeNativeRecordingSession: (payload: {
     screenVideoPath: string
+    micAudioData?: ArrayBuffer
+    micAudioFileName?: string
     cameraVideoData?: ArrayBuffer
     cameraFileName?: string
     inputTelemetry?: import('../src/types/inputTelemetry').InputTelemetryFileV1

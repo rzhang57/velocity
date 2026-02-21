@@ -47,6 +47,11 @@ const AUTO_ZOOM_INTENSITY_OPTIONS: Array<{ value: AutoZoomIntensity; label: stri
   { value: "balanced", label: "Balanced" },
   { value: "intense", label: "Intense" },
 ];
+const PREVIEW_QUALITY_SCALE: Record<'full' | 'half' | 'quarter', number> = {
+  full: 1,
+  half: 0.5,
+  quarter: 0.25,
+};
 const EXPORT_DIRECTORY_STORAGE_KEY = "openscreen.exportDirectory";
 
 export default function VideoEditor() {
@@ -86,6 +91,7 @@ export default function VideoEditor() {
   const [showNewRecordingDialog, setShowNewRecordingDialog] = useState(false);
   const [isStartingNewRecording, setIsStartingNewRecording] = useState(false);
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>('16:9');
+  const [previewQuality, setPreviewQuality] = useState<'full' | 'half' | 'quarter'>('full');
   const [mp4FrameRate, setMp4FrameRate] = useState<Mp4FrameRate>(60);
   const [mp4Resolution, setMp4Resolution] = useState<Mp4ResolutionPreset>(1080);
   const [exportFormat, setExportFormat] = useState<ExportFormat>('mp4');
@@ -1127,6 +1133,7 @@ export default function VideoEditor() {
                   <div className="relative" style={{ width: 'auto', height: '100%', aspectRatio: getAspectRatioValue(aspectRatio), maxWidth: '100%', margin: '0 auto', boxSizing: 'border-box' }}>
                     <VideoPlayback
                       aspectRatio={aspectRatio}
+                      previewScale={PREVIEW_QUALITY_SCALE[previewQuality]}
                       ref={videoPlaybackRef}
                       videoPath={videoPath || ''}
                       cameraVideoPath={cameraVideoPath || undefined}
@@ -1245,6 +1252,8 @@ export default function VideoEditor() {
           customCursorEnabled={Boolean(recordingSession?.customCursorEnabled)}
           customCursorSize={customCursorSize}
           onCustomCursorSizeChange={setCustomCursorSize}
+          previewQuality={previewQuality}
+          onPreviewQualityChange={setPreviewQuality}
           borderRadius={borderRadius}
           onBorderRadiusChange={setBorderRadius}
           padding={padding}

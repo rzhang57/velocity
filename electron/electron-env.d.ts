@@ -130,6 +130,8 @@ interface Window {
     }) => Promise<{ success: boolean; session?: Record<string, unknown>; message?: string; error?: string }>
     storeNativeRecordingSession: (payload: {
       screenVideoPath: string
+      micAudioData?: ArrayBuffer
+      micAudioFileName?: string
       cameraVideoData?: ArrayBuffer
       cameraFileName?: string
       inputTelemetry?: import('../src/types/inputTelemetry').InputTelemetryFileV1

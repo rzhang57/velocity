@@ -16,6 +16,7 @@ interface RecordingSession {
   cameraVideoPath?: string;
   micEnabled: boolean;
   micCaptured: boolean;
+  micStartOffsetMs?: number;
   cameraEnabled: boolean;
   cameraCaptured: boolean;
   cameraStartOffsetMs?: number;
@@ -154,6 +155,8 @@ interface Window {
     }>
     storeNativeRecordingSession: (payload: {
       screenVideoPath: string
+      micAudioData?: ArrayBuffer
+      micAudioFileName?: string
       cameraVideoData?: ArrayBuffer
       cameraFileName?: string
       inputTelemetry?: import("./types/inputTelemetry").InputTelemetryFileV1
