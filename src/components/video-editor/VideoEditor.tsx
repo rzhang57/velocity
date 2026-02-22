@@ -91,6 +91,7 @@ export default function VideoEditor() {
   const [showNewRecordingDialog, setShowNewRecordingDialog] = useState(false);
   const [isStartingNewRecording, setIsStartingNewRecording] = useState(false);
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>('16:9');
+  const [sourceAspectRatio, setSourceAspectRatio] = useState<number>(16 / 9);
   const [previewQuality, setPreviewQuality] = useState<'full' | 'half' | 'quarter'>('full');
   const [mp4FrameRate, setMp4FrameRate] = useState<Mp4FrameRate>(60);
   const [mp4Resolution, setMp4Resolution] = useState<Mp4ResolutionPreset>(1080);
@@ -1130,7 +1131,7 @@ export default function VideoEditor() {
               <div className="w-full h-full flex flex-col items-center justify-center bg-black/40 rounded-2xl border border-white/5 shadow-2xl overflow-hidden">
                 {/* Video preview */}
                 <div className="w-full flex justify-center items-center" style={{ flex: '1 1 auto', margin: '6px 0 0' }}>
-                  <div className="relative" style={{ width: 'auto', height: '100%', aspectRatio: getAspectRatioValue(aspectRatio), maxWidth: '100%', margin: '0 auto', boxSizing: 'border-box' }}>
+                  <div className="relative" style={{ width: 'auto', height: '100%', aspectRatio: sourceAspectRatio, maxWidth: '100%', margin: '0 auto', boxSizing: 'border-box' }}>
                     <VideoPlayback
                       aspectRatio={aspectRatio}
                       previewScale={PREVIEW_QUALITY_SCALE[previewQuality]}
@@ -1169,6 +1170,11 @@ export default function VideoEditor() {
                       onSelectAnnotation={handleSelectAnnotation}
                       onAnnotationPositionChange={handleAnnotationPositionChange}
                       onAnnotationSizeChange={handleAnnotationSizeChange}
+                      onSourceMetadata={({ aspectRatio }) => {
+                        if (Number.isFinite(aspectRatio) && aspectRatio > 0) {
+                          setSourceAspectRatio(aspectRatio);
+                        }
+                      }}
                     />
                   </div>
                 </div>

@@ -44,6 +44,8 @@ export function createHudOverlayWindow(): BrowserWindow {
     frame: false,
     thickFrame: false,
     transparent: true,
+    backgroundColor: '#00000000',
+    show: false,
     resizable: false,
     alwaysOnTop: true,
     skipTaskbar: true,
@@ -85,6 +87,12 @@ export function createHudOverlayWindow(): BrowserWindow {
     })
   }
 
+  win.once('ready-to-show', () => {
+    if (!win.isDestroyed()) {
+      win.showInactive();
+    }
+  });
+
   return win
 }
 
@@ -106,6 +114,7 @@ export function createEditorWindow(): BrowserWindow {
     skipTaskbar: false,
     title: 'velocity',
     backgroundColor: '#000000',
+    show: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.mjs'),
       nodeIntegration: false,
@@ -130,6 +139,12 @@ export function createEditorWindow(): BrowserWindow {
     })
   }
 
+  win.once('ready-to-show', () => {
+    if (!win.isDestroyed()) {
+      win.show();
+    }
+  });
+
   return win
 }
 
@@ -149,6 +164,7 @@ export function createSourceSelectorWindow(): BrowserWindow {
     alwaysOnTop: true,
     transparent: true,
     backgroundColor: '#00000000',
+    show: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.mjs'),
       nodeIntegration: false,
@@ -164,6 +180,12 @@ export function createSourceSelectorWindow(): BrowserWindow {
       query: { windowType: 'source-selector' } 
     })
   }
+
+  win.once('ready-to-show', () => {
+    if (!win.isDestroyed()) {
+      win.show();
+    }
+  });
 
   return win
 }
@@ -197,6 +219,7 @@ export function createCameraPreviewWindow(deviceId?: string): BrowserWindow {
     skipTaskbar: true,
     hasShadow: false,
     backgroundColor: '#00000000',
+    show: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.mjs'),
       nodeIntegration: false,
@@ -222,6 +245,11 @@ export function createCameraPreviewWindow(deviceId?: string): BrowserWindow {
   }
 
   cameraPreviewWindow = win;
+  win.once('ready-to-show', () => {
+    if (!win.isDestroyed()) {
+      win.showInactive();
+    }
+  });
   win.on('closed', () => {
     if (cameraPreviewWindow === win) {
       cameraPreviewWindow = null;

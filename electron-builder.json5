@@ -24,20 +24,6 @@
     {
       "from": "public/wallpapers",
       "to": "assets/wallpapers"
-    },
-    {
-      "from": "native-capture-sidecar/bin/win32",
-      "to": "native-capture/win32",
-      "filter": [
-        "**/*"
-      ]
-    },
-    {
-      "from": "native-capture-sidecar/bin/darwin",
-      "to": "native-capture/darwin",
-      "filter": [
-        "**/*"
-      ]
     }
   ],
 
@@ -49,6 +35,15 @@
       }
     ],
     "icon": "icons/icons/mac/icon.icns",
+    "extraResources": [
+      {
+        "from": "native-capture-sidecar/bin/darwin",
+        "to": "native-capture/darwin",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
     "artifactName": "${productName}-Mac-${arch}-${version}-Installer.${ext}"
   },
   "linux": {
@@ -64,6 +59,15 @@
       "nsis"
     ],
     "icon": "icons/icons/win/icon.ico",
+    "extraResources": [
+      {
+        "from": "native-capture-sidecar/bin/win32",
+        "to": "native-capture/win32",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
     "artifactName": "${productName}-setup-${version}.${ext}"
   },
   "publish": {

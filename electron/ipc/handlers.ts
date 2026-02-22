@@ -627,9 +627,10 @@ export function registerIpcHandlers(
 
   ipcMain.handle('native-capture-start', async (_, payload: NativeCaptureStartPayload) => {
     const packagedFfmpeg = resolvePackagedFfmpegPath()
+    const platform = process.platform
     const sourceDisplayId = payload.source?.displayId
       || (typeof selectedSource?.display_id === 'string' ? selectedSource.display_id : undefined)
-    const captureRegion = payload.source?.type === 'screen'
+    const captureRegion = platform === 'win32' && payload.source?.type === 'screen'
       ? resolveCaptureRegionForDisplay(sourceDisplayId)
       : undefined
     const normalizedPayload: NativeCaptureStartPayload = {
@@ -638,7 +639,7 @@ export function registerIpcHandlers(
         ? payload.outputPath
         : path.join(RECORDINGS_DIR, payload.outputPath),
       ffmpegPath: payload.ffmpegPath || (fsSync.existsSync(packagedFfmpeg) ? packagedFfmpeg : undefined),
-      captureRegion: payload.captureRegion || captureRegion,
+      captureRegion: platform === 'win32' ? (payload.captureRegion || captureRegion) : undefined,
     }
     return await nativeCaptureService.start(normalizedPayload)
   })

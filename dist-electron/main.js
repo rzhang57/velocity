@@ -1,193 +1,300 @@
-var Se = Object.defineProperty;
-var Ee = (i, t, o) => t in i ? Se(i, t, { enumerable: !0, configurable: !0, writable: !0, value: o }) : i[t] = o;
-var S = (i, t, o) => Ee(i, typeof t != "symbol" ? t + "" : t, o);
-import { ipcMain as p, screen as N, BrowserWindow as L, app as D, desktopCapturer as ve, shell as pe, dialog as ie, nativeImage as Te, session as _e, Tray as Ce, Menu as Ae } from "electron";
-import { fileURLToPath as de } from "node:url";
-import d from "node:path";
-import k from "node:fs/promises";
-import K from "node:fs";
-import { spawnSync as Re, spawn as be } from "node:child_process";
-import { createRequire as Ne } from "node:module";
-const ee = d.dirname(de(import.meta.url)), je = d.join(ee, ".."), U = process.env.VITE_DEV_SERVER_URL, re = d.join(je, "dist");
-let G = null, I = null;
-p.on("hud-overlay-hide", () => {
-  G && !G.isDestroyed() && G.minimize(), I && !I.isDestroyed() && I.minimize();
+var __defProp = Object.defineProperty;
+var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
+var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "symbol" ? key + "" : key, value);
+import { ipcMain, screen, BrowserWindow, app, desktopCapturer, shell, dialog, nativeImage, session, Tray, Menu } from "electron";
+import { fileURLToPath } from "node:url";
+import path from "node:path";
+import fs$1 from "node:fs/promises";
+import fs from "node:fs";
+import { spawnSync, spawn } from "node:child_process";
+import { createRequire } from "node:module";
+const __dirname$2 = path.dirname(fileURLToPath(import.meta.url));
+const APP_ROOT = path.join(__dirname$2, "..");
+const VITE_DEV_SERVER_URL$1 = process.env["VITE_DEV_SERVER_URL"];
+const RENDERER_DIST$1 = path.join(APP_ROOT, "dist");
+let hudOverlayWindow = null;
+let cameraPreviewWindow = null;
+ipcMain.on("hud-overlay-hide", () => {
+  if (hudOverlayWindow && !hudOverlayWindow.isDestroyed()) {
+    hudOverlayWindow.minimize();
+  }
+  if (cameraPreviewWindow && !cameraPreviewWindow.isDestroyed()) {
+    cameraPreviewWindow.minimize();
+  }
 });
-function xe() {
-  const i = N.getPrimaryDisplay(), { workArea: t } = i, o = 500, c = 120, l = Math.floor(t.x + (t.width - o) / 2), a = Math.floor(t.y + t.height - c - 5), f = new L({
-    width: o,
-    height: c,
+function createHudOverlayWindow() {
+  const primaryDisplay = screen.getPrimaryDisplay();
+  const { workArea } = primaryDisplay;
+  const windowWidth = 500;
+  const windowHeight = 120;
+  const x = Math.floor(workArea.x + (workArea.width - windowWidth) / 2);
+  const y = Math.floor(workArea.y + workArea.height - windowHeight - 5);
+  const win = new BrowserWindow({
+    width: windowWidth,
+    height: windowHeight,
     minWidth: 500,
     maxWidth: 1400,
     minHeight: 100,
     maxHeight: 720,
-    x: l,
-    y: a,
-    frame: !1,
-    thickFrame: !1,
-    transparent: !0,
-    resizable: !1,
-    alwaysOnTop: !0,
-    skipTaskbar: !0,
-    hasShadow: !1,
+    x,
+    y,
+    frame: false,
+    thickFrame: false,
+    transparent: true,
+    backgroundColor: "#00000000",
+    show: false,
+    resizable: false,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    hasShadow: false,
     webPreferences: {
-      preload: d.join(ee, "preload.mjs"),
-      nodeIntegration: !1,
-      contextIsolation: !0,
-      backgroundThrottling: !1
+      preload: path.join(__dirname$2, "preload.mjs"),
+      nodeIntegration: false,
+      contextIsolation: true,
+      backgroundThrottling: false
     }
   });
-  return f.setContentProtection(!0), f.webContents.on("did-finish-load", () => {
-    f == null || f.webContents.send("main-process-message", (/* @__PURE__ */ new Date()).toLocaleString());
-  }), G = f, f.on("closed", () => {
-    G === f && (G = null);
-  }), f.on("minimize", () => {
-    I && !I.isDestroyed() && I.minimize();
-  }), U ? f.loadURL(U + "?windowType=hud-overlay") : f.loadFile(d.join(re, "index.html"), {
-    query: { windowType: "hud-overlay" }
-  }), f;
+  win.setContentProtection(true);
+  win.webContents.on("did-finish-load", () => {
+    win == null ? void 0 : win.webContents.send("main-process-message", (/* @__PURE__ */ new Date()).toLocaleString());
+  });
+  hudOverlayWindow = win;
+  win.on("closed", () => {
+    if (hudOverlayWindow === win) {
+      hudOverlayWindow = null;
+    }
+  });
+  win.on("minimize", () => {
+    if (cameraPreviewWindow && !cameraPreviewWindow.isDestroyed()) {
+      cameraPreviewWindow.minimize();
+    }
+  });
+  if (VITE_DEV_SERVER_URL$1) {
+    win.loadURL(VITE_DEV_SERVER_URL$1 + "?windowType=hud-overlay");
+  } else {
+    win.loadFile(path.join(RENDERER_DIST$1, "index.html"), {
+      query: { windowType: "hud-overlay" }
+    });
+  }
+  win.once("ready-to-show", () => {
+    if (!win.isDestroyed()) {
+      win.showInactive();
+    }
+  });
+  return win;
 }
-function We() {
-  const i = process.platform === "darwin", t = new L({
+function createEditorWindow() {
+  const isMac = process.platform === "darwin";
+  const win = new BrowserWindow({
     width: 1200,
     height: 800,
     minWidth: 800,
     minHeight: 600,
-    ...i && {
+    ...isMac && {
       titleBarStyle: "hiddenInset",
       trafficLightPosition: { x: 12, y: 12 }
     },
-    transparent: !1,
-    resizable: !0,
-    alwaysOnTop: !1,
-    skipTaskbar: !1,
+    transparent: false,
+    resizable: true,
+    alwaysOnTop: false,
+    skipTaskbar: false,
     title: "velocity",
     backgroundColor: "#000000",
+    show: false,
     webPreferences: {
-      preload: d.join(ee, "preload.mjs"),
-      nodeIntegration: !1,
-      contextIsolation: !0,
-      webSecurity: !1,
-      backgroundThrottling: !1
+      preload: path.join(__dirname$2, "preload.mjs"),
+      nodeIntegration: false,
+      contextIsolation: true,
+      webSecurity: false,
+      backgroundThrottling: false
     }
   });
-  return t.maximize(), t.webContents.on("did-finish-load", () => {
-    t == null || t.webContents.send("main-process-message", (/* @__PURE__ */ new Date()).toLocaleString());
-  }), U ? t.loadURL(U + "?windowType=editor") : t.loadFile(d.join(re, "index.html"), {
-    query: { windowType: "editor" }
-  }), t;
+  win.maximize();
+  win.webContents.on("did-finish-load", () => {
+    win == null ? void 0 : win.webContents.send("main-process-message", (/* @__PURE__ */ new Date()).toLocaleString());
+  });
+  if (VITE_DEV_SERVER_URL$1) {
+    win.loadURL(VITE_DEV_SERVER_URL$1 + "?windowType=editor");
+  } else {
+    win.loadFile(path.join(RENDERER_DIST$1, "index.html"), {
+      query: { windowType: "editor" }
+    });
+  }
+  win.once("ready-to-show", () => {
+    if (!win.isDestroyed()) {
+      win.show();
+    }
+  });
+  return win;
 }
-function Ve() {
-  const { width: i, height: t } = N.getPrimaryDisplay().workAreaSize, o = new L({
+function createSourceSelectorWindow() {
+  const { width, height } = screen.getPrimaryDisplay().workAreaSize;
+  const win = new BrowserWindow({
     width: 620,
     height: 420,
     minHeight: 350,
     maxHeight: 500,
-    x: Math.round((i - 620) / 2),
-    y: Math.round((t - 420) / 2),
-    frame: !1,
-    thickFrame: !1,
-    resizable: !1,
-    alwaysOnTop: !0,
-    transparent: !0,
+    x: Math.round((width - 620) / 2),
+    y: Math.round((height - 420) / 2),
+    frame: false,
+    thickFrame: false,
+    resizable: false,
+    alwaysOnTop: true,
+    transparent: true,
     backgroundColor: "#00000000",
+    show: false,
     webPreferences: {
-      preload: d.join(ee, "preload.mjs"),
-      nodeIntegration: !1,
-      contextIsolation: !0
+      preload: path.join(__dirname$2, "preload.mjs"),
+      nodeIntegration: false,
+      contextIsolation: true
     }
   });
-  return o.setContentProtection(!0), U ? o.loadURL(U + "?windowType=source-selector") : o.loadFile(d.join(re, "index.html"), {
-    query: { windowType: "source-selector" }
-  }), o;
+  win.setContentProtection(true);
+  if (VITE_DEV_SERVER_URL$1) {
+    win.loadURL(VITE_DEV_SERVER_URL$1 + "?windowType=source-selector");
+  } else {
+    win.loadFile(path.join(RENDERER_DIST$1, "index.html"), {
+      query: { windowType: "source-selector" }
+    });
+  }
+  win.once("ready-to-show", () => {
+    if (!win.isDestroyed()) {
+      win.show();
+    }
+  });
+  return win;
 }
-function Oe(i) {
-  if (I && !I.isDestroyed())
-    return I.focus(), I;
-  const t = N.getPrimaryDisplay(), { workArea: o } = t, c = 320, l = 200, a = Math.floor(o.x + o.width - c - 24), f = Math.floor(o.y + o.height - l - 140), w = new L({
-    width: c,
-    height: l,
+function createCameraPreviewWindow(deviceId) {
+  if (cameraPreviewWindow && !cameraPreviewWindow.isDestroyed()) {
+    cameraPreviewWindow.focus();
+    return cameraPreviewWindow;
+  }
+  const primaryDisplay = screen.getPrimaryDisplay();
+  const { workArea } = primaryDisplay;
+  const windowWidth = 320;
+  const windowHeight = 200;
+  const x = Math.floor(workArea.x + workArea.width - windowWidth - 24);
+  const y = Math.floor(workArea.y + workArea.height - windowHeight - 140);
+  const win = new BrowserWindow({
+    width: windowWidth,
+    height: windowHeight,
     minWidth: 220,
     minHeight: 140,
-    x: a,
-    y: f,
-    frame: !1,
-    thickFrame: !1,
-    transparent: !0,
-    resizable: !0,
-    alwaysOnTop: !0,
-    skipTaskbar: !0,
-    hasShadow: !1,
+    x,
+    y,
+    frame: false,
+    thickFrame: false,
+    transparent: true,
+    resizable: true,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    hasShadow: false,
     backgroundColor: "#00000000",
+    show: false,
     webPreferences: {
-      preload: d.join(ee, "preload.mjs"),
-      nodeIntegration: !1,
-      contextIsolation: !0,
-      backgroundThrottling: !1
+      preload: path.join(__dirname$2, "preload.mjs"),
+      nodeIntegration: false,
+      contextIsolation: true,
+      backgroundThrottling: false
     }
   });
-  w.setContentProtection(!0), w.setVisibleOnAllWorkspaces(!0, { visibleOnFullScreen: !0 }), w.setAspectRatio(16 / 9);
-  const h = { windowType: "camera-preview", ...i ? { deviceId: i } : {} };
-  if (U) {
-    const x = new URL(U);
-    x.searchParams.set("windowType", "camera-preview"), i && x.searchParams.set("deviceId", i), w.loadURL(x.toString());
-  } else
-    w.loadFile(d.join(re, "index.html"), { query: h });
-  return I = w, w.on("closed", () => {
-    I === w && (I = null);
-  }), w;
-}
-function le() {
-  I && !I.isDestroyed() && I.close(), I = null;
-}
-function ze() {
-  return I && !I.isDestroyed() ? I : null;
-}
-class Le {
-  constructor() {
-    S(this, "hook", null);
-    S(this, "handlers", []);
-  }
-  start(t) {
-    const o = Ne(import.meta.url);
-    let c;
-    try {
-      c = o("uiohook-napi");
-    } catch {
-      return { success: !1, message: "uiohook-napi is not installed" };
+  win.setContentProtection(true);
+  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  win.setAspectRatio(16 / 9);
+  const query = { windowType: "camera-preview", ...deviceId ? { deviceId } : {} };
+  if (VITE_DEV_SERVER_URL$1) {
+    const url = new URL(VITE_DEV_SERVER_URL$1);
+    url.searchParams.set("windowType", "camera-preview");
+    if (deviceId) {
+      url.searchParams.set("deviceId", deviceId);
     }
-    const l = (c == null ? void 0 : c.uIOhook) ?? (c == null ? void 0 : c.default) ?? c;
-    if (!l || typeof l.on != "function" || typeof l.start != "function" || typeof l.stop != "function")
-      return { success: !1, message: "uiohook-napi loaded, but API shape is unsupported" };
-    this.hook = l, this.handlers = [
-      { name: "mousedown", cb: (a) => t.onMouseDown(a) },
-      { name: "mouseup", cb: (a) => t.onMouseUp(a) },
-      { name: "mousemove", cb: (a) => t.onMouseMove(a) },
-      { name: "wheel", cb: (a) => t.onWheel(a) },
-      { name: "keydown", cb: (a) => t.onKeyDown(a) }
+    win.loadURL(url.toString());
+  } else {
+    win.loadFile(path.join(RENDERER_DIST$1, "index.html"), { query });
+  }
+  cameraPreviewWindow = win;
+  win.once("ready-to-show", () => {
+    if (!win.isDestroyed()) {
+      win.showInactive();
+    }
+  });
+  win.on("closed", () => {
+    if (cameraPreviewWindow === win) {
+      cameraPreviewWindow = null;
+    }
+  });
+  return win;
+}
+function closeCameraPreviewWindow() {
+  if (cameraPreviewWindow && !cameraPreviewWindow.isDestroyed()) {
+    cameraPreviewWindow.close();
+  }
+  cameraPreviewWindow = null;
+}
+function getCameraPreviewWindow() {
+  return cameraPreviewWindow && !cameraPreviewWindow.isDestroyed() ? cameraPreviewWindow : null;
+}
+class NativeHookProvider {
+  constructor() {
+    __publicField(this, "hook", null);
+    __publicField(this, "handlers", []);
+  }
+  start(callbacks) {
+    const require2 = createRequire(import.meta.url);
+    let mod;
+    try {
+      mod = require2("uiohook-napi");
+    } catch {
+      return { success: false, message: "uiohook-napi is not installed" };
+    }
+    const hook = (mod == null ? void 0 : mod.uIOhook) ?? (mod == null ? void 0 : mod.default) ?? mod;
+    if (!hook || typeof hook.on !== "function" || typeof hook.start !== "function" || typeof hook.stop !== "function") {
+      return { success: false, message: "uiohook-napi loaded, but API shape is unsupported" };
+    }
+    this.hook = hook;
+    this.handlers = [
+      { name: "mousedown", cb: (e) => callbacks.onMouseDown(e) },
+      { name: "mouseup", cb: (e) => callbacks.onMouseUp(e) },
+      { name: "mousemove", cb: (e) => callbacks.onMouseMove(e) },
+      { name: "wheel", cb: (e) => callbacks.onWheel(e) },
+      { name: "keydown", cb: (e) => callbacks.onKeyDown(e) }
     ];
     try {
-      for (const a of this.handlers)
-        this.hook.on(a.name, a.cb);
-      return this.hook.start(), { success: !0 };
-    } catch (a) {
-      return this.stop(), { success: !1, message: `Failed to start native hook: ${String(a)}` };
+      for (const handler of this.handlers) {
+        this.hook.on(handler.name, handler.cb);
+      }
+      this.hook.start();
+      return { success: true };
+    } catch (error) {
+      this.stop();
+      return { success: false, message: `Failed to start native hook: ${String(error)}` };
     }
   }
   stop() {
-    var t, o;
-    if (this.hook)
-      try {
-        for (const c of this.handlers)
-          typeof ((t = this.hook) == null ? void 0 : t.off) == "function" ? this.hook.off(c.name, c.cb) : typeof ((o = this.hook) == null ? void 0 : o.removeListener) == "function" && this.hook.removeListener(c.name, c.cb);
-        this.hook.stop(), typeof this.hook.removeAllListeners == "function" && this.hook.removeAllListeners();
-      } catch {
-      } finally {
-        this.handlers = [], this.hook = null;
+    var _a, _b;
+    if (!this.hook) {
+      return;
+    }
+    try {
+      for (const handler of this.handlers) {
+        if (typeof ((_a = this.hook) == null ? void 0 : _a.off) === "function") {
+          this.hook.off(handler.name, handler.cb);
+        } else if (typeof ((_b = this.hook) == null ? void 0 : _b.removeListener) === "function") {
+          this.hook.removeListener(handler.name, handler.cb);
+        }
       }
+      this.hook.stop();
+      if (typeof this.hook.removeAllListeners === "function") {
+        this.hook.removeAllListeners();
+      }
+    } catch {
+    } finally {
+      this.handlers = [];
+      this.hook = null;
+    }
   }
 }
-function te() {
+function createEmptyStats() {
   return {
     totalEvents: 0,
     mouseDownCount: 0,
@@ -197,128 +304,184 @@ function te() {
     keyDownCount: 0
   };
 }
-function Ue(i, t) {
-  switch (i.totalEvents += 1, t.type) {
+function incrementStats(stats, event) {
+  stats.totalEvents += 1;
+  switch (event.type) {
     case "mouseDown":
-      i.mouseDownCount += 1;
+      stats.mouseDownCount += 1;
       break;
     case "mouseUp":
-      i.mouseUpCount += 1;
+      stats.mouseUpCount += 1;
       break;
     case "mouseMoveSampled":
-      i.mouseMoveCount += 1;
+      stats.mouseMoveCount += 1;
       break;
     case "wheel":
-      i.wheelCount += 1;
+      stats.wheelCount += 1;
       break;
     case "keyDownCategory":
-      i.keyDownCount += 1;
+      stats.keyDownCount += 1;
       break;
   }
 }
-function Be(i) {
-  return i ? i.startsWith("screen:") ? "screen" : i.startsWith("window:") ? "window" : "unknown" : "unknown";
+function detectSourceKind(sourceId) {
+  if (!sourceId) return "unknown";
+  if (sourceId.startsWith("screen:")) return "screen";
+  if (sourceId.startsWith("window:")) return "window";
+  return "unknown";
 }
-function $e(i, t) {
-  if (i !== "screen")
-    return;
-  const l = N.getAllDisplays().find((j) => String(j.id) === t) ?? N.getPrimaryDisplay(), { x: a, y: f, width: w, height: h } = l.bounds, x = (j) => {
-    const z = N.dipToScreenPoint;
-    return typeof z == "function" ? z(j) : j;
-  }, F = x({ x: a, y: f }), A = x({ x: a + w, y: f + h }), H = Math.max(1, A.x - F.x), B = Math.max(1, A.y - F.y);
+function resolveSourceBounds(sourceKind, sourceDisplayId) {
+  if (sourceKind !== "screen") {
+    return void 0;
+  }
+  const displays = screen.getAllDisplays();
+  const byDisplayId = displays.find((display) => String(display.id) === sourceDisplayId);
+  const targetDisplay = byDisplayId ?? screen.getPrimaryDisplay();
+  const { x, y, width, height } = targetDisplay.bounds;
+  const dipToScreen = (point) => {
+    const maybeFn = screen.dipToScreenPoint;
+    return typeof maybeFn === "function" ? maybeFn(point) : point;
+  };
+  const topLeft = dipToScreen({ x, y });
+  const bottomRight = dipToScreen({ x: x + width, y: y + height });
+  const physicalWidth = Math.max(1, bottomRight.x - topLeft.x);
+  const physicalHeight = Math.max(1, bottomRight.y - topLeft.y);
   return {
-    x: F.x,
-    y: F.y,
-    width: H,
-    height: B
+    x: topLeft.x,
+    y: topLeft.y,
+    width: physicalWidth,
+    height: physicalHeight
   };
 }
-function He(i) {
-  if (i.ctrlKey || i.altKey || i.metaKey) return "shortcut";
-  const t = i.keycode ?? i.rawcode ?? -1;
-  return t === 14 || t === 8 ? "backspace" : t === 15 || t === 9 ? "tab" : t === 28 || t === 13 ? "enter" : [29, 42, 54, 56, 3613, 3675].includes(t) ? "modifier" : t >= 2 && t <= 13 || t >= 16 && t <= 27 || t >= 30 && t <= 53 ? "printable" : "other";
-}
-function ae(i, t) {
-  return t === "mouseDown" || t === "mouseUp" ? i.button === 2 ? "default" : "pointer" : t === "wheel" ? Math.abs(Number(i.deltaX ?? 0)) + Math.abs(Number(i.deltaY ?? 0)) > 0 ? "default" : "pointer" : "default";
-}
-class qe {
-  constructor() {
-    S(this, "provider", new Le());
-    S(this, "events", []);
-    S(this, "stats", te());
-    S(this, "currentSession", null);
-    S(this, "lastMoveTs", 0);
-    S(this, "lastMoveX", -1);
-    S(this, "lastMoveY", -1);
+function categorizeKey(raw) {
+  if (raw.ctrlKey || raw.altKey || raw.metaKey) return "shortcut";
+  const keycode = raw.keycode ?? raw.rawcode ?? -1;
+  if (keycode === 14 || keycode === 8) return "backspace";
+  if (keycode === 15 || keycode === 9) return "tab";
+  if (keycode === 28 || keycode === 13) return "enter";
+  if ([29, 42, 54, 56, 3613, 3675].includes(keycode)) return "modifier";
+  if (keycode >= 2 && keycode <= 13 || keycode >= 16 && keycode <= 27 || keycode >= 30 && keycode <= 53) {
+    return "printable";
   }
-  start(t, o) {
+  return "other";
+}
+function resolveCursorType(event, eventType) {
+  if (eventType === "mouseDown" || eventType === "mouseUp") {
+    return event.button === 2 ? "default" : "pointer";
+  }
+  if (eventType === "wheel") {
+    return Math.abs(Number(event.deltaX ?? 0)) + Math.abs(Number(event.deltaY ?? 0)) > 0 ? "default" : "pointer";
+  }
+  return "default";
+}
+class InputTrackingService {
+  constructor() {
+    __publicField(this, "provider", new NativeHookProvider());
+    __publicField(this, "events", []);
+    __publicField(this, "stats", createEmptyStats());
+    __publicField(this, "currentSession", null);
+    __publicField(this, "lastMoveTs", 0);
+    __publicField(this, "lastMoveX", -1);
+    __publicField(this, "lastMoveY", -1);
+  }
+  start(payload, selectedSource2) {
     this.stop();
-    const c = t.sourceId ?? (o == null ? void 0 : o.id), l = t.sourceDisplayId ?? (o == null ? void 0 : o.display_id), a = Be(c), f = $e(a, l);
+    const sourceId = payload.sourceId ?? (selectedSource2 == null ? void 0 : selectedSource2.id);
+    const sourceDisplayId = payload.sourceDisplayId ?? (selectedSource2 == null ? void 0 : selectedSource2.display_id);
+    const sourceKind = detectSourceKind(sourceId);
+    const sourceBounds = resolveSourceBounds(sourceKind, sourceDisplayId);
     this.currentSession = {
-      sessionId: t.sessionId,
-      startedAtMs: t.startedAtMs,
-      sourceKind: a,
-      sourceId: c,
-      sourceDisplayId: l,
-      sourceBounds: f
-    }, this.events = [], this.stats = te(), this.lastMoveTs = 0, this.lastMoveX = -1, this.lastMoveY = -1;
-    const w = this.provider.start({
-      onMouseDown: (h) => {
+      sessionId: payload.sessionId,
+      startedAtMs: payload.startedAtMs,
+      sourceKind,
+      sourceId,
+      sourceDisplayId,
+      sourceBounds
+    };
+    this.events = [];
+    this.stats = createEmptyStats();
+    this.lastMoveTs = 0;
+    this.lastMoveX = -1;
+    this.lastMoveY = -1;
+    const startResult = this.provider.start({
+      onMouseDown: (event) => {
         this.pushEvent({
           type: "mouseDown",
           ts: Date.now(),
-          x: Number(h.x ?? 0),
-          y: Number(h.y ?? 0),
-          button: Number(h.button ?? 0),
-          cursorType: ae(h, "mouseDown")
+          x: Number(event.x ?? 0),
+          y: Number(event.y ?? 0),
+          button: Number(event.button ?? 0),
+          cursorType: resolveCursorType(event, "mouseDown")
         });
       },
-      onMouseUp: (h) => {
+      onMouseUp: (event) => {
         this.pushEvent({
           type: "mouseUp",
           ts: Date.now(),
-          x: Number(h.x ?? 0),
-          y: Number(h.y ?? 0),
-          button: Number(h.button ?? 0),
-          cursorType: ae(h, "mouseUp")
+          x: Number(event.x ?? 0),
+          y: Number(event.y ?? 0),
+          button: Number(event.button ?? 0),
+          cursorType: resolveCursorType(event, "mouseUp")
         });
       },
-      onMouseMove: (h) => {
-        const x = Date.now(), F = Number(h.x ?? 0), A = Number(h.y ?? 0), H = 33, B = 4, j = F - this.lastMoveX, z = A - this.lastMoveY, q = j * j + z * z;
-        x - this.lastMoveTs < H && q < B * B || (this.lastMoveTs = x, this.lastMoveX = F, this.lastMoveY = A, this.pushEvent({
+      onMouseMove: (event) => {
+        const now = Date.now();
+        const x = Number(event.x ?? 0);
+        const y = Number(event.y ?? 0);
+        const minIntervalMs = 33;
+        const minDeltaPx = 4;
+        const dx = x - this.lastMoveX;
+        const dy = y - this.lastMoveY;
+        const distanceSq = dx * dx + dy * dy;
+        if (now - this.lastMoveTs < minIntervalMs && distanceSq < minDeltaPx * minDeltaPx) {
+          return;
+        }
+        this.lastMoveTs = now;
+        this.lastMoveX = x;
+        this.lastMoveY = y;
+        this.pushEvent({
           type: "mouseMoveSampled",
-          ts: x,
-          x: F,
-          y: A,
+          ts: now,
+          x,
+          y,
           cursorType: "default"
-        }));
+        });
       },
-      onWheel: (h) => {
-        const x = Number(h.deltaY ?? h.amount ?? h.rotation ?? 0), F = Number(h.deltaX ?? 0);
+      onWheel: (event) => {
+        const deltaY = Number(event.deltaY ?? event.amount ?? event.rotation ?? 0);
+        const deltaX = Number(event.deltaX ?? 0);
         this.pushEvent({
           type: "wheel",
           ts: Date.now(),
-          x: Number(h.x ?? 0),
-          y: Number(h.y ?? 0),
-          deltaX: F,
-          deltaY: x,
-          cursorType: ae({ deltaX: F, deltaY: x }, "wheel")
+          x: Number(event.x ?? 0),
+          y: Number(event.y ?? 0),
+          deltaX,
+          deltaY,
+          cursorType: resolveCursorType({ deltaX, deltaY }, "wheel")
         });
       },
-      onKeyDown: (h) => {
+      onKeyDown: (event) => {
         this.pushEvent({
           type: "keyDownCategory",
           ts: Date.now(),
-          category: He(h)
+          category: categorizeKey(event)
         });
       }
     });
-    return w.success || (this.currentSession = null, this.events = [], this.stats = te()), w;
+    if (!startResult.success) {
+      this.currentSession = null;
+      this.events = [];
+      this.stats = createEmptyStats();
+      return startResult;
+    }
+    return startResult;
   }
   stop() {
-    if (this.provider.stop(), !this.currentSession)
+    this.provider.stop();
+    if (!this.currentSession) {
       return null;
-    const t = {
+    }
+    const telemetry = {
       version: 1,
       sessionId: this.currentSession.sessionId,
       startedAtMs: this.currentSession.startedAtMs,
@@ -329,387 +492,569 @@ class qe {
       events: this.events,
       stats: this.stats
     };
-    return this.currentSession = null, this.events = [], this.stats = te(), t;
+    this.currentSession = null;
+    this.events = [];
+    this.stats = createEmptyStats();
+    return telemetry;
   }
-  pushEvent(t) {
-    this.events.push(t), Ue(this.stats, t);
+  pushEvent(event) {
+    this.events.push(event);
+    incrementStats(this.stats, event);
   }
 }
-class Xe {
+class NativeCaptureService {
   constructor() {
-    S(this, "process", null);
-    S(this, "buffer", "");
-    S(this, "pending", /* @__PURE__ */ new Map());
-    S(this, "status", "idle");
-    S(this, "statusMessage", "");
-    S(this, "currentSessionId", null);
-    S(this, "startedAtMs", null);
-    S(this, "sequence", 0);
+    __publicField(this, "process", null);
+    __publicField(this, "buffer", "");
+    __publicField(this, "pending", /* @__PURE__ */ new Map());
+    __publicField(this, "status", "idle");
+    __publicField(this, "statusMessage", "");
+    __publicField(this, "currentSessionId", null);
+    __publicField(this, "startedAtMs", null);
+    __publicField(this, "sequence", 0);
   }
-  async start(t) {
-    if (this.status === "recording" || this.status === "starting")
-      return { success: !1, message: "Native capture already in progress" };
-    const o = await this.ensureProcess();
-    if (!o.success)
-      return o;
-    this.status = "starting", this.statusMessage = "", this.currentSessionId = t.sessionId, this.startedAtMs = Date.now();
+  async start(payload) {
+    if (this.status === "recording" || this.status === "starting") {
+      return { success: false, message: "Native capture already in progress" };
+    }
+    const boot = await this.ensureProcess();
+    if (!boot.success) {
+      return boot;
+    }
+    this.status = "starting";
+    this.statusMessage = "";
+    this.currentSessionId = payload.sessionId;
+    this.startedAtMs = Date.now();
     try {
-      const c = await this.sendRequest({
+      const response = await this.sendRequest({
         id: this.nextId("start"),
         cmd: "start_capture",
-        payload: t
+        payload
       }, 1e4);
-      return c.ok ? (this.status = "recording", this.statusMessage = "", { success: !0 }) : (this.status = "error", this.statusMessage = c.error || "Failed to start native capture", { success: !1, message: this.statusMessage });
-    } catch (c) {
-      return this.status = "error", this.statusMessage = c instanceof Error ? c.message : "Failed to start native capture", { success: !1, message: this.statusMessage };
+      if (!response.ok) {
+        this.status = "error";
+        this.statusMessage = response.error || "Failed to start native capture";
+        return { success: false, message: this.statusMessage };
+      }
+      this.status = "recording";
+      this.statusMessage = "";
+      return { success: true };
+    } catch (error) {
+      this.status = "error";
+      this.statusMessage = error instanceof Error ? error.message : "Failed to start native capture";
+      return { success: false, message: this.statusMessage };
     }
   }
-  async stop(t) {
-    var o, c, l, a, f, w;
-    if (this.status !== "recording" && this.status !== "starting")
-      return { success: !1, message: "Native capture is not active" };
-    if (!this.process)
-      return this.status = "idle", { success: !1, message: "Native capture process not available" };
+  async stop(payload) {
+    var _a, _b, _c, _d, _e, _f;
+    if (this.status !== "recording" && this.status !== "starting") {
+      return { success: false, message: "Native capture is not active" };
+    }
+    if (!this.process) {
+      this.status = "idle";
+      return { success: false, message: "Native capture process not available" };
+    }
     this.status = "stopping";
     try {
-      const h = await this.sendRequest({
+      const response = await this.sendRequest({
         id: this.nextId("stop"),
         cmd: "stop_capture",
-        payload: t
+        payload
       }, 2e4);
-      if (!h.ok)
-        return this.status = "error", this.statusMessage = h.error || "Failed to stop native capture", { success: !1, message: this.statusMessage };
-      const x = typeof ((o = h.payload) == null ? void 0 : o.outputPath) == "string" ? h.payload.outputPath : "";
-      if (!x)
-        return this.status = "error", this.statusMessage = "Native capture did not return output path", { success: !1, message: this.statusMessage };
-      const F = K.existsSync(x) ? K.statSync(x) : void 0, A = {
-        outputPath: x,
-        durationMs: Q((c = h.payload) == null ? void 0 : c.durationMs),
-        width: Q((l = h.payload) == null ? void 0 : l.width),
-        height: Q((a = h.payload) == null ? void 0 : a.height),
-        fpsActual: Q((f = h.payload) == null ? void 0 : f.fpsActual),
-        bytes: Q((w = h.payload) == null ? void 0 : w.bytes) ?? (F == null ? void 0 : F.size)
+      if (!response.ok) {
+        this.status = "error";
+        this.statusMessage = response.error || "Failed to stop native capture";
+        return { success: false, message: this.statusMessage };
+      }
+      const outputPath = typeof ((_a = response.payload) == null ? void 0 : _a.outputPath) === "string" ? response.payload.outputPath : "";
+      if (!outputPath) {
+        this.status = "error";
+        this.statusMessage = "Native capture did not return output path";
+        return { success: false, message: this.statusMessage };
+      }
+      const stats = fs.existsSync(outputPath) ? fs.statSync(outputPath) : void 0;
+      const result = {
+        outputPath,
+        durationMs: numberOrUndefined((_b = response.payload) == null ? void 0 : _b.durationMs),
+        width: numberOrUndefined((_c = response.payload) == null ? void 0 : _c.width),
+        height: numberOrUndefined((_d = response.payload) == null ? void 0 : _d.height),
+        fpsActual: numberOrUndefined((_e = response.payload) == null ? void 0 : _e.fpsActual),
+        bytes: numberOrUndefined((_f = response.payload) == null ? void 0 : _f.bytes) ?? (stats == null ? void 0 : stats.size)
       };
-      return this.status = "idle", this.statusMessage = "", this.currentSessionId = null, this.startedAtMs = null, { success: !0, result: A };
-    } catch (h) {
-      return this.status = "error", this.statusMessage = h instanceof Error ? h.message : "Failed to stop native capture", { success: !1, message: this.statusMessage };
+      this.status = "idle";
+      this.statusMessage = "";
+      this.currentSessionId = null;
+      this.startedAtMs = null;
+      return { success: true, result };
+    } catch (error) {
+      this.status = "error";
+      this.statusMessage = error instanceof Error ? error.message : "Failed to stop native capture";
+      return { success: false, message: this.statusMessage };
     }
   }
-  async getEncoderOptions(t) {
-    var l;
-    const o = this.getEncoderOptionsFromFfmpeg(t), c = await this.ensureProcess();
-    if (!c.success)
+  async getEncoderOptions(ffmpegPath) {
+    var _a;
+    const ffmpegFallback = this.getEncoderOptionsFromFfmpeg(ffmpegPath);
+    const boot = await this.ensureProcess();
+    if (!boot.success) {
       return {
-        success: o.success,
-        options: o.options,
-        message: c.message || o.message
+        success: ffmpegFallback.success,
+        options: ffmpegFallback.options,
+        message: boot.message || ffmpegFallback.message
       };
+    }
     try {
-      const a = await this.sendRequest({
+      const response = await this.sendRequest({
         id: this.nextId("get-encoder-options"),
         cmd: "get_encoder_options",
         payload: {
           platform: process.platform,
-          ...t ? { ffmpegPath: t } : {}
+          ...ffmpegPath ? { ffmpegPath } : {}
         }
       }, 5e3);
-      if (!a.ok)
-        return o.options.length > 1 ? {
-          success: !0,
-          options: o.options,
-          message: a.error || o.message || "Sidecar encoder options unavailable, used FFmpeg probe fallback"
-        } : {
-          success: !1,
-          options: o.options,
-          message: a.error || "Failed to fetch encoder options"
+      if (!response.ok) {
+        if (ffmpegFallback.options.length > 1) {
+          return {
+            success: true,
+            options: ffmpegFallback.options,
+            message: response.error || ffmpegFallback.message || "Sidecar encoder options unavailable, used FFmpeg probe fallback"
+          };
+        }
+        return {
+          success: false,
+          options: ffmpegFallback.options,
+          message: response.error || "Failed to fetch encoder options"
         };
-      const w = (Array.isArray((l = a.payload) == null ? void 0 : l.options) ? a.payload.options : []).filter((h) => !!h && typeof h == "object" && typeof h.codec == "string" && typeof h.label == "string" && typeof h.hardware == "string").map((h) => ({
-        encoder: h.codec,
-        label: h.label,
-        hardware: h.hardware
+      }
+      const rawOptions = Array.isArray((_a = response.payload) == null ? void 0 : _a.options) ? response.payload.options : [];
+      const options = rawOptions.filter((item) => Boolean(item) && typeof item === "object" && typeof item.codec === "string" && typeof item.label === "string" && typeof item.hardware === "string").map((item) => ({
+        encoder: item.codec,
+        label: item.label,
+        hardware: item.hardware
       }));
-      return w.some((h) => h.encoder === "h264_libx264") || w.unshift({ encoder: "h264_libx264", label: "x264 (CPU)", hardware: "cpu" }), { success: !0, options: w };
-    } catch (a) {
-      return o.options.length > 1 ? {
-        success: !0,
-        options: o.options,
-        message: a instanceof Error ? a.message : o.message
-      } : {
-        success: !1,
-        options: o.options,
-        message: a instanceof Error ? a.message : "Failed to fetch encoder options"
+      if (!options.some((option) => option.encoder === "h264_libx264")) {
+        options.unshift({ encoder: "h264_libx264", label: "x264 (CPU)", hardware: "cpu" });
+      }
+      return { success: true, options };
+    } catch (error) {
+      if (ffmpegFallback.options.length > 1) {
+        return {
+          success: true,
+          options: ffmpegFallback.options,
+          message: error instanceof Error ? error.message : ffmpegFallback.message
+        };
+      }
+      return {
+        success: false,
+        options: ffmpegFallback.options,
+        message: error instanceof Error ? error.message : "Failed to fetch encoder options"
       };
     }
   }
-  getEncoderOptionsFromFfmpeg(t) {
-    const o = [
+  getEncoderOptionsFromFfmpeg(ffmpegPath) {
+    const options = [
       { encoder: "h264_libx264", label: "x264 (CPU)", hardware: "cpu" }
-    ], c = t || (process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg"), l = Re(c, ["-hide_banner", "-encoders"], {
+    ];
+    const probePath = ffmpegPath || (process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg");
+    const output = spawnSync(probePath, ["-hide_banner", "-encoders"], {
       encoding: "utf8",
-      windowsHide: !0,
+      windowsHide: true,
       timeout: 4e3
-    }), a = `${l.stdout || ""}
-${l.stderr || ""}`;
-    return l.error || !a.trim() ? {
-      success: !1,
-      options: o,
-      message: l.error instanceof Error ? l.error.message : "Unable to probe FFmpeg encoders"
-    } : (a.includes("h264_nvenc") && o.push({ encoder: "h264_nvenc", label: "NVIDIA H264 (GPU)", hardware: "nvidia" }), a.includes("h264_amf") && o.push({ encoder: "h264_amf", label: "AMD H264", hardware: "amd" }), { success: !0, options: o });
+    });
+    const text = `${output.stdout || ""}
+${output.stderr || ""}`;
+    if (output.error || !text.trim()) {
+      return {
+        success: false,
+        options,
+        message: output.error instanceof Error ? output.error.message : "Unable to probe FFmpeg encoders"
+      };
+    }
+    if (text.includes("h264_nvenc")) {
+      options.push({ encoder: "h264_nvenc", label: "NVIDIA H264 (GPU)", hardware: "nvidia" });
+    }
+    if (text.includes("h264_amf")) {
+      options.push({ encoder: "h264_amf", label: "AMD H264", hardware: "amd" });
+    }
+    return { success: true, options };
   }
-  getStatus(t) {
+  getStatus(sessionId) {
     return {
       status: this.status,
       message: this.statusMessage || void 0,
-      sessionId: t || this.currentSessionId || void 0,
+      sessionId: sessionId || this.currentSessionId || void 0,
       startedAtMs: this.startedAtMs || void 0
     };
   }
   dispose() {
-    for (const [, t] of this.pending.entries())
-      clearTimeout(t.timeout), t.reject(new Error("Native capture service disposed"));
-    this.pending.clear(), this.process && !this.process.killed && this.process.kill(), this.process = null, this.buffer = "", this.status = "idle", this.statusMessage = "", this.currentSessionId = null, this.startedAtMs = null;
+    for (const [, pending] of this.pending.entries()) {
+      clearTimeout(pending.timeout);
+      pending.reject(new Error("Native capture service disposed"));
+    }
+    this.pending.clear();
+    if (this.process && !this.process.killed) {
+      this.process.kill();
+    }
+    this.process = null;
+    this.buffer = "";
+    this.status = "idle";
+    this.statusMessage = "";
+    this.currentSessionId = null;
+    this.startedAtMs = null;
   }
   async ensureProcess() {
-    if (this.process && !this.process.killed)
-      return { success: !0 };
-    const t = Ye();
-    if (!t)
-      return { success: !1, message: "Native capture sidecar not found. Build sidecar binaries first." };
-    const o = be(t, [], {
+    if (this.process && !this.process.killed) {
+      return { success: true };
+    }
+    const executable = resolveSidecarExecutablePath();
+    if (!executable) {
+      return { success: false, message: "Native capture sidecar not found. Build sidecar binaries first." };
+    }
+    const child = spawn(executable, [], {
       stdio: ["pipe", "pipe", "pipe"],
-      windowsHide: !0
+      windowsHide: true
     });
-    this.process = o, this.buffer = "", o.stdout.setEncoding("utf8"), o.stdout.on("data", (c) => {
-      this.consumeStdout(c);
-    }), o.stderr.setEncoding("utf8"), o.stderr.on("data", () => {
-    }), o.on("exit", (c, l) => {
-      const a = `Native capture sidecar exited (code=${c ?? "null"}, signal=${l ?? "null"})`;
-      for (const [, f] of this.pending.entries())
-        clearTimeout(f.timeout), f.reject(new Error(a));
-      this.pending.clear(), this.process = null, this.status !== "idle" && (this.status = "error", this.statusMessage = a);
+    this.process = child;
+    this.buffer = "";
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => {
+      this.consumeStdout(chunk);
+    });
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", () => {
+    });
+    child.on("exit", (code, signal) => {
+      const message = `Native capture sidecar exited (code=${code ?? "null"}, signal=${signal ?? "null"})`;
+      for (const [, pending] of this.pending.entries()) {
+        clearTimeout(pending.timeout);
+        pending.reject(new Error(message));
+      }
+      this.pending.clear();
+      this.process = null;
+      if (this.status !== "idle") {
+        this.status = "error";
+        this.statusMessage = message;
+      }
     });
     try {
-      const c = await this.sendRequest({
+      const init = await this.sendRequest({
         id: this.nextId("init"),
         cmd: "init",
         payload: { platform: process.platform }
       }, 5e3);
-      return c.ok ? { success: !0 } : (this.status = "error", this.statusMessage = c.error || "Native capture sidecar init failed", { success: !1, message: this.statusMessage });
-    } catch (c) {
-      return this.status = "error", this.statusMessage = c instanceof Error ? c.message : "Native capture init failed", { success: !1, message: this.statusMessage };
+      if (!init.ok) {
+        this.status = "error";
+        this.statusMessage = init.error || "Native capture sidecar init failed";
+        return { success: false, message: this.statusMessage };
+      }
+      return { success: true };
+    } catch (error) {
+      this.status = "error";
+      this.statusMessage = error instanceof Error ? error.message : "Native capture init failed";
+      return { success: false, message: this.statusMessage };
     }
   }
-  consumeStdout(t) {
-    this.buffer += t;
-    const o = this.buffer.split(/\r?\n/);
-    this.buffer = o.pop() ?? "";
-    for (const c of o) {
-      const l = c.trim();
-      if (!l) continue;
-      let a;
+  consumeStdout(chunk) {
+    this.buffer += chunk;
+    const lines = this.buffer.split(/\r?\n/);
+    this.buffer = lines.pop() ?? "";
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      let parsed;
       try {
-        a = JSON.parse(l);
+        parsed = JSON.parse(trimmed);
       } catch {
         continue;
       }
-      if (a.id) {
-        const f = this.pending.get(a.id);
-        if (f) {
-          clearTimeout(f.timeout), this.pending.delete(a.id), f.resolve(a);
+      if (parsed.id) {
+        const pending = this.pending.get(parsed.id);
+        if (pending) {
+          clearTimeout(pending.timeout);
+          this.pending.delete(parsed.id);
+          pending.resolve(parsed);
           continue;
         }
       }
-      a.event === "capture_error" && (this.status = "error", this.statusMessage = a.error || "Native capture sidecar reported error");
+      if (parsed.event === "capture_error") {
+        this.status = "error";
+        this.statusMessage = parsed.error || "Native capture sidecar reported error";
+      }
     }
   }
-  async sendRequest(t, o) {
-    if (!this.process || this.process.killed)
+  async sendRequest(request, timeoutMs) {
+    if (!this.process || this.process.killed) {
       throw new Error("Native capture process is not running");
-    const c = `${JSON.stringify(t)}
-`, l = new Promise((a, f) => {
-      const w = setTimeout(() => {
-        this.pending.delete(t.id), f(new Error(`Native capture request timed out (${t.cmd})`));
-      }, o);
-      this.pending.set(t.id, { resolve: a, reject: f, timeout: w });
+    }
+    const serialized = `${JSON.stringify(request)}
+`;
+    const promise = new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        this.pending.delete(request.id);
+        reject(new Error(`Native capture request timed out (${request.cmd})`));
+      }, timeoutMs);
+      this.pending.set(request.id, { resolve, reject, timeout });
     });
-    return this.process.stdin.write(c), await l;
+    this.process.stdin.write(serialized);
+    return await promise;
   }
-  nextId(t) {
-    return this.sequence += 1, `${t}-${Date.now()}-${this.sequence}`;
+  nextId(prefix) {
+    this.sequence += 1;
+    return `${prefix}-${Date.now()}-${this.sequence}`;
   }
 }
-function Ye() {
-  const i = process.platform === "win32" ? "native-capture-sidecar.exe" : "native-capture-sidecar", t = D.isPackaged ? [
-    d.join(process.resourcesPath, "native-capture", process.platform, i),
-    d.join(process.resourcesPath, "native-capture", i)
+function resolveSidecarExecutablePath() {
+  const fileName = process.platform === "win32" ? "native-capture-sidecar.exe" : "native-capture-sidecar";
+  const candidates = app.isPackaged ? [
+    path.join(process.resourcesPath, "native-capture", process.platform, fileName),
+    path.join(process.resourcesPath, "native-capture", fileName)
   ] : [
-    d.join(D.getAppPath(), "native-capture-sidecar", "bin", process.platform, i),
-    d.join(D.getAppPath(), "native-capture-sidecar", "target", "debug", i),
-    d.join(D.getAppPath(), "native-capture-sidecar", "target", "release", i)
+    path.join(app.getAppPath(), "native-capture-sidecar", "bin", process.platform, fileName),
+    path.join(app.getAppPath(), "native-capture-sidecar", "target", "debug", fileName),
+    path.join(app.getAppPath(), "native-capture-sidecar", "target", "release", fileName)
   ];
-  for (const o of t)
-    if (K.existsSync(o))
-      return o;
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
   return null;
 }
-function Q(i) {
-  return typeof i == "number" && Number.isFinite(i) ? i : void 0;
+function numberOrUndefined(value) {
+  return typeof value === "number" && Number.isFinite(value) ? value : void 0;
 }
-const Ke = d.dirname(de(import.meta.url));
-let P = null, V = null, M = null;
-const ge = new qe(), se = new Xe(), ce = d.join(D.getPath("documents"), "velocity exports"), b = {
-  micEnabled: !0,
+const __dirname$1 = path.dirname(fileURLToPath(import.meta.url));
+let selectedSource = null;
+let currentVideoPath = null;
+let currentRecordingSession = null;
+const inputTrackingService = new InputTrackingService();
+const nativeCaptureService = new NativeCaptureService();
+const DEFAULT_EXPORTS_DIR = path.join(app.getPath("documents"), "velocity exports");
+const hudSettings = {
+  micEnabled: true,
   selectedMicDeviceId: "",
   micProcessingMode: "cleaned",
-  cameraEnabled: !1,
-  cameraPreviewEnabled: !0,
+  cameraEnabled: false,
+  cameraPreviewEnabled: true,
   selectedCameraDeviceId: "",
   recordingPreset: "quality",
   recordingFps: 60,
-  customCursorEnabled: !0,
-  useLegacyRecorder: !1,
+  customCursorEnabled: true,
+  useLegacyRecorder: false,
   recordingEncoder: "h264_libx264",
   encoderOptions: [
     { encoder: "h264_libx264", label: "x264 (CPU)", hardware: "cpu" }
   ]
 };
-function Ge(i) {
-  if (!i) return;
-  const o = N.getAllDisplays().find((f) => String(f.id) === i);
-  if (!o) return;
-  const c = (f) => {
-    const w = N.dipToScreenPoint;
-    return typeof w == "function" ? w(f) : f;
-  }, l = c({ x: o.bounds.x, y: o.bounds.y }), a = c({
-    x: o.bounds.x + o.bounds.width,
-    y: o.bounds.y + o.bounds.height
+function resolveCaptureRegionForDisplay(displayId) {
+  if (!displayId) return void 0;
+  const displays = screen.getAllDisplays();
+  const display = displays.find((item) => String(item.id) === displayId);
+  if (!display) return void 0;
+  const dipToScreenPoint = (point) => {
+    const maybe = screen.dipToScreenPoint;
+    return typeof maybe === "function" ? maybe(point) : point;
+  };
+  const topLeft = dipToScreenPoint({ x: display.bounds.x, y: display.bounds.y });
+  const bottomRight = dipToScreenPoint({
+    x: display.bounds.x + display.bounds.width,
+    y: display.bounds.y + display.bounds.height
   });
   return {
-    x: l.x,
-    y: l.y,
-    width: Math.max(1, a.x - l.x),
-    height: Math.max(1, a.y - l.y)
+    x: topLeft.x,
+    y: topLeft.y,
+    width: Math.max(1, bottomRight.x - topLeft.x),
+    height: Math.max(1, bottomRight.y - topLeft.y)
   };
 }
-function Je() {
-  return !P || typeof P != "object" ? null : {
-    id: typeof P.id == "string" ? P.id : void 0,
-    display_id: typeof P.display_id == "string" ? P.display_id : void 0
+function getSelectedSourceForDisplayMedia() {
+  if (!selectedSource || typeof selectedSource !== "object") {
+    return null;
+  }
+  return {
+    id: typeof selectedSource.id === "string" ? selectedSource.id : void 0,
+    display_id: typeof selectedSource.display_id === "string" ? selectedSource.display_id : void 0
   };
 }
-let X = null, Y = null;
-const Z = {};
-function Qe(i) {
-  const t = d.parse(i);
-  return d.join(t.dir, `${t.name}.telemetry.json`);
+let recordingPopoverWindow = null;
+let mediaPopoverWindow = null;
+const popoverAnchors = {};
+function getTelemetryFilePath(videoPath) {
+  const parsed = path.parse(videoPath);
+  return path.join(parsed.dir, `${parsed.name}.telemetry.json`);
 }
-async function Ze(i) {
-  var o;
-  const t = Qe(i);
+async function loadTelemetryForVideo(videoPath) {
+  var _a;
+  const telemetryPath = getTelemetryFilePath(videoPath);
   try {
-    const c = await k.readFile(t, "utf-8"), l = JSON.parse(c);
-    if (l && l.version === 1 && Array.isArray(l.events))
-      return console.info("[auto-zoom][main] Telemetry sidecar loaded", {
-        telemetryPath: t,
-        sessionId: l.sessionId,
-        totalEvents: ((o = l.stats) == null ? void 0 : o.totalEvents) ?? 0
-      }), { path: t, telemetry: l };
+    const raw = await fs$1.readFile(telemetryPath, "utf-8");
+    const parsed = JSON.parse(raw);
+    if (parsed && parsed.version === 1 && Array.isArray(parsed.events)) {
+      console.info("[auto-zoom][main] Telemetry sidecar loaded", {
+        telemetryPath,
+        sessionId: parsed.sessionId,
+        totalEvents: ((_a = parsed.stats) == null ? void 0 : _a.totalEvents) ?? 0
+      });
+      return { path: telemetryPath, telemetry: parsed };
+    }
     console.warn("[auto-zoom][main] Telemetry sidecar was present but invalid format", {
-      telemetryPath: t
+      telemetryPath
     });
   } catch {
     console.info("[auto-zoom][main] No telemetry sidecar found for video", {
-      videoPath: i,
-      telemetryPath: t
+      videoPath,
+      telemetryPath
     });
   }
   return null;
 }
-function et(i, t, o, c, l, a, f, w, h) {
-  const x = (r) => r === "recording" ? X : Y, F = (r, e) => {
-    if (r === "recording") {
-      X = e, e || delete Z.recording;
+function registerIpcHandlers(createEditorWindow2, createHudOverlayWindow2, createSourceSelectorWindow2, createCameraPreviewWindow2, closeCameraPreviewWindow2, getMainWindow, getSourceSelectorWindow, getCameraPreviewWindow2, onRecordingStateChange) {
+  const getPopoverWindow = (kind) => kind === "recording" ? recordingPopoverWindow : mediaPopoverWindow;
+  const setPopoverWindow = (kind, win) => {
+    if (kind === "recording") {
+      recordingPopoverWindow = win;
+      if (!win) {
+        delete popoverAnchors.recording;
+      }
       return;
     }
-    Y = e, e || delete Z.media;
-  }, A = () => {
-    const r = [X, Y];
-    for (const e of r)
-      e && !e.isDestroyed() && e.close();
-    X = null, Y = null, delete Z.recording, delete Z.media;
-  }, H = (r, e, s, n) => {
-    const u = e === "recording" ? { width: 420, height: 560 } : { width: 360, height: 290 }, m = 8, g = {
-      x: r.x + s.x,
-      y: r.y + s.y,
-      width: s.width,
-      height: s.height
-    }, E = N.getDisplayMatching(r).workArea, W = g.x + Math.round((g.width - u.width) / 2), C = E.x + E.width - u.width, T = Math.max(E.x, Math.min(W, C)), R = n === "top" ? g.y - u.height - m : g.y + g.height + m, ke = E.y + E.height - u.height, Fe = Math.max(E.y, Math.min(R, ke));
-    return { x: T, y: Fe, width: u.width, height: u.height };
-  }, B = () => {
-    L.getAllWindows().forEach((r) => {
-      r.isDestroyed() || r.webContents.send("hud-settings-updated", b);
-    });
-  }, j = (r, e) => {
-    const s = new L({
-      width: e.width,
-      height: e.height,
-      resizable: !1,
-      frame: !1,
-      transparent: !0,
-      show: !1,
-      hasShadow: !1,
-      alwaysOnTop: !0,
-      skipTaskbar: !0,
-      x: e.x,
-      y: e.y,
-      webPreferences: {
-        preload: d.join(Ke, "preload.mjs"),
-        nodeIntegration: !1,
-        contextIsolation: !0,
-        backgroundThrottling: !1
+    mediaPopoverWindow = win;
+    if (!win) {
+      delete popoverAnchors.media;
+    }
+  };
+  const closeHudPopoverWindows = () => {
+    const windows = [recordingPopoverWindow, mediaPopoverWindow];
+    for (const win of windows) {
+      if (win && !win.isDestroyed()) {
+        win.close();
+      }
+    }
+    recordingPopoverWindow = null;
+    mediaPopoverWindow = null;
+    delete popoverAnchors.recording;
+    delete popoverAnchors.media;
+  };
+  const computePopoverBounds = (mainBounds, kind, anchorRect, side) => {
+    const popoverSize = kind === "recording" ? { width: 420, height: 560 } : { width: 360, height: 290 };
+    const margin = 8;
+    const absoluteAnchor = {
+      x: mainBounds.x + anchorRect.x,
+      y: mainBounds.y + anchorRect.y,
+      width: anchorRect.width,
+      height: anchorRect.height
+    };
+    const display = screen.getDisplayMatching(mainBounds);
+    const workArea = display.workArea;
+    const centeredX = absoluteAnchor.x + Math.round((absoluteAnchor.width - popoverSize.width) / 2);
+    const maxX = workArea.x + workArea.width - popoverSize.width;
+    const x = Math.max(workArea.x, Math.min(centeredX, maxX));
+    const preferredY = side === "top" ? absoluteAnchor.y - popoverSize.height - margin : absoluteAnchor.y + absoluteAnchor.height + margin;
+    const maxY = workArea.y + workArea.height - popoverSize.height;
+    const y = Math.max(workArea.y, Math.min(preferredY, maxY));
+    return { x, y, width: popoverSize.width, height: popoverSize.height };
+  };
+  const broadcastHudSettings = () => {
+    BrowserWindow.getAllWindows().forEach((win) => {
+      if (!win.isDestroyed()) {
+        win.webContents.send("hud-settings-updated", hudSettings);
       }
     });
-    if (s.on("closed", () => {
-      F(r, null);
-    }), ue) {
-      const n = new URL(ue);
-      n.searchParams.set("windowType", "hud-popover"), n.searchParams.set("kind", r), s.loadURL(n.toString());
-    } else
-      s.loadFile(d.join(fe, "index.html"), {
-        query: { windowType: "hud-popover", kind: r }
+  };
+  const createHudPopoverWindow = (kind, bounds) => {
+    const popoverWindow = new BrowserWindow({
+      width: bounds.width,
+      height: bounds.height,
+      resizable: false,
+      frame: false,
+      transparent: true,
+      show: false,
+      hasShadow: false,
+      alwaysOnTop: true,
+      skipTaskbar: true,
+      x: bounds.x,
+      y: bounds.y,
+      webPreferences: {
+        preload: path.join(__dirname$1, "preload.mjs"),
+        nodeIntegration: false,
+        contextIsolation: true,
+        backgroundThrottling: false
+      }
+    });
+    popoverWindow.on("closed", () => {
+      setPopoverWindow(kind, null);
+    });
+    if (VITE_DEV_SERVER_URL) {
+      const url = new URL(VITE_DEV_SERVER_URL);
+      url.searchParams.set("windowType", "hud-popover");
+      url.searchParams.set("kind", kind);
+      popoverWindow.loadURL(url.toString());
+    } else {
+      popoverWindow.loadFile(path.join(RENDERER_DIST, "index.html"), {
+        query: { windowType: "hud-popover", kind }
       });
-    return F(r, s), s;
-  }, z = (r, e, s) => {
-    const n = a();
-    if (!n || n.isDestroyed())
-      return { success: !1, message: "HUD window unavailable" };
-    Z[r] = { anchorRect: e, side: s };
-    const u = H(n.getBounds(), r, e, s), m = x(r);
-    if (m && !m.isDestroyed()) {
-      m.setBounds(u, !1);
-      const y = () => {
-        m.isDestroyed() || (m.isVisible() || m.show(), m.webContents.send("hud-settings-updated", b));
-      };
-      return m.webContents.isLoadingMainFrame() ? m.webContents.once("did-finish-load", y) : y(), { success: !0 };
     }
-    const g = j(r, u);
-    return g.webContents.once("did-finish-load", () => {
-      g.isDestroyed() || (g.webContents.send("hud-settings-updated", b), g.show());
-    }), { success: !0 };
-  }, q = async (r) => {
-    await k.mkdir(r, { recursive: !0 });
-  }, ne = () => D.isPackaged ? d.join(process.resourcesPath, "native-capture", process.platform, process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg") : d.join(D.getAppPath(), "native-capture-sidecar", "bin", process.platform, process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg"), Ie = async (r, e, s = 0) => {
-    const n = ne();
-    if (!K.existsSync(n))
-      return { success: !1, message: "ffmpeg executable not found for native audio muxing" };
-    const u = d.parse(r), m = d.join(u.dir, `${u.name}.with-audio${u.ext || ".mp4"}`), g = [
+    setPopoverWindow(kind, popoverWindow);
+    return popoverWindow;
+  };
+  const openHudPopoverWindow = (kind, anchorRect, side) => {
+    const mainWin = getMainWindow();
+    if (!mainWin || mainWin.isDestroyed()) {
+      return { success: false, message: "HUD window unavailable" };
+    }
+    popoverAnchors[kind] = { anchorRect, side };
+    const bounds = computePopoverBounds(mainWin.getBounds(), kind, anchorRect, side);
+    const existing = getPopoverWindow(kind);
+    if (existing && !existing.isDestroyed()) {
+      existing.setBounds(bounds, false);
+      const showReady = () => {
+        if (existing.isDestroyed()) return;
+        if (!existing.isVisible()) {
+          existing.show();
+        }
+        existing.webContents.send("hud-settings-updated", hudSettings);
+      };
+      if (existing.webContents.isLoadingMainFrame()) {
+        existing.webContents.once("did-finish-load", showReady);
+      } else {
+        showReady();
+      }
+      return { success: true };
+    }
+    const popoverWindow = createHudPopoverWindow(kind, bounds);
+    popoverWindow.webContents.once("did-finish-load", () => {
+      if (!popoverWindow.isDestroyed()) {
+        popoverWindow.webContents.send("hud-settings-updated", hudSettings);
+        popoverWindow.show();
+      }
+    });
+    return { success: true };
+  };
+  const ensureDirectoryExists = async (directoryPath) => {
+    await fs$1.mkdir(directoryPath, { recursive: true });
+  };
+  const resolvePackagedFfmpegPath = () => app.isPackaged ? path.join(process.resourcesPath, "native-capture", process.platform, process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg") : path.join(app.getAppPath(), "native-capture-sidecar", "bin", process.platform, process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg");
+  const muxAudioIntoVideo = async (videoPath, audioPath, audioOffsetMs = 0) => {
+    const ffmpegPath = resolvePackagedFfmpegPath();
+    if (!fs.existsSync(ffmpegPath)) {
+      return { success: false, message: "ffmpeg executable not found for native audio muxing" };
+    }
+    const parsed = path.parse(videoPath);
+    const tempOutputPath = path.join(parsed.dir, `${parsed.name}.with-audio${parsed.ext || ".mp4"}`);
+    const ffmpegArgs = [
       "-y",
       "-i",
-      r
-    ], y = Math.abs(s) / 1e3;
-    s > 0 && y > 1e-3 ? g.push("-itsoffset", y.toFixed(3)) : s < 0 && y > 1e-3 && g.push("-ss", y.toFixed(3)), g.push(
+      videoPath
+    ];
+    const normalizedOffsetSeconds = Math.abs(audioOffsetMs) / 1e3;
+    if (audioOffsetMs > 0 && normalizedOffsetSeconds > 1e-3) {
+      ffmpegArgs.push("-itsoffset", normalizedOffsetSeconds.toFixed(3));
+    } else if (audioOffsetMs < 0 && normalizedOffsetSeconds > 1e-3) {
+      ffmpegArgs.push("-ss", normalizedOffsetSeconds.toFixed(3));
+    }
+    ffmpegArgs.push(
       "-i",
-      e,
+      audioPath,
       "-map",
       "0:v:0",
       "-map",
@@ -721,544 +1066,910 @@ function et(i, t, o, c, l, a, f, w, h) {
       "-b:a",
       "192k",
       "-shortest",
-      m
+      tempOutputPath
     );
-    const E = await new Promise((W) => {
-      const C = be(n, g, { windowsHide: !0, stdio: ["ignore", "pipe", "pipe"] });
-      let T = "";
-      C.stderr.setEncoding("utf8"), C.stderr.on("data", (R) => {
-        T.length < 4e3 && (T += String(R));
-      }), C.on("error", (R) => {
-        W({ success: !1, message: `ffmpeg failed to start: ${String(R)}` });
-      }), C.on("close", (R) => {
-        if (R === 0) {
-          W({ success: !0 });
+    const muxResult = await new Promise((resolve) => {
+      const child = spawn(ffmpegPath, ffmpegArgs, { windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+      let stderr = "";
+      child.stderr.setEncoding("utf8");
+      child.stderr.on("data", (chunk) => {
+        if (stderr.length < 4e3) {
+          stderr += String(chunk);
+        }
+      });
+      child.on("error", (error) => {
+        resolve({ success: false, message: `ffmpeg failed to start: ${String(error)}` });
+      });
+      child.on("close", (code) => {
+        if (code === 0) {
+          resolve({ success: true });
           return;
         }
-        W({
-          success: !1,
-          message: `ffmpeg mux failed with exit code ${String(R)}${T ? `: ${T.trim()}` : ""}`
+        resolve({
+          success: false,
+          message: `ffmpeg mux failed with exit code ${String(code)}${stderr ? `: ${stderr.trim()}` : ""}`
         });
       });
     });
-    if (!E.success)
-      return await J(m), { success: !1, message: E.message };
+    if (!muxResult.success) {
+      await deleteFileIfExists(tempOutputPath);
+      return { success: false, message: muxResult.message };
+    }
     try {
-      await k.unlink(r);
+      await fs$1.unlink(videoPath);
     } catch {
     }
-    return await k.rename(m, r), { success: !0, outputPath: r };
-  }, me = async (r, e) => {
-    const s = d.parse(e);
-    let n = d.join(r, e), u = 1;
-    for (; ; )
-      try {
-        await k.access(n), n = d.join(r, `${s.name} (${u})${s.ext}`), u += 1;
-      } catch {
-        return n;
-      }
-  }, J = async (r) => {
-    if (r)
-      try {
-        await k.unlink(r), console.info("[editor][main] Deleted recording asset", { filePath: r });
-      } catch {
-        console.warn("[editor][main] Could not delete recording asset (ignored)", { filePath: r });
-      }
+    await fs$1.rename(tempOutputPath, videoPath);
+    return { success: true, outputPath: videoPath };
   };
-  p.handle("get-sources", async (r, e) => (await ve.getSources(e)).map((n) => ({
-    id: n.id,
-    name: n.name,
-    display_id: n.display_id,
-    thumbnail: n.thumbnail ? n.thumbnail.toDataURL() : null,
-    appIcon: n.appIcon ? n.appIcon.toDataURL() : null
-  }))), p.handle("select-source", (r, e) => {
-    P = e;
-    const s = f();
-    return s && s.close(), P;
-  }), p.handle("get-selected-source", () => P), p.handle("start-input-tracking", (r, e) => {
+  const getUniqueFilePath = async (directoryPath, fileName) => {
+    const parsed = path.parse(fileName);
+    let candidate = path.join(directoryPath, fileName);
+    let suffix = 1;
+    for (; ; ) {
+      try {
+        await fs$1.access(candidate);
+        candidate = path.join(directoryPath, `${parsed.name} (${suffix})${parsed.ext}`);
+        suffix += 1;
+      } catch {
+        return candidate;
+      }
+    }
+  };
+  const deleteFileIfExists = async (filePath) => {
+    if (!filePath) return;
+    try {
+      await fs$1.unlink(filePath);
+      console.info("[editor][main] Deleted recording asset", { filePath });
+    } catch {
+      console.warn("[editor][main] Could not delete recording asset (ignored)", { filePath });
+    }
+  };
+  ipcMain.handle("get-sources", async (_, opts) => {
+    const sources = await desktopCapturer.getSources(opts);
+    return sources.map((source) => ({
+      id: source.id,
+      name: source.name,
+      display_id: source.display_id,
+      thumbnail: source.thumbnail ? source.thumbnail.toDataURL() : null,
+      appIcon: source.appIcon ? source.appIcon.toDataURL() : null
+    }));
+  });
+  ipcMain.handle("select-source", (_, source) => {
+    selectedSource = source;
+    const sourceSelectorWin = getSourceSelectorWindow();
+    if (sourceSelectorWin) {
+      sourceSelectorWin.close();
+    }
+    return selectedSource;
+  });
+  ipcMain.handle("get-selected-source", () => {
+    return selectedSource;
+  });
+  ipcMain.handle("start-input-tracking", (_, payload) => {
     console.info("[auto-zoom][main] start-input-tracking requested", {
-      sessionId: e.sessionId,
-      sourceId: e.sourceId,
-      sourceDisplayId: e.sourceDisplayId,
-      selectedSourceId: P == null ? void 0 : P.id,
-      selectedSourceDisplayId: P == null ? void 0 : P.display_id
+      sessionId: payload.sessionId,
+      sourceId: payload.sourceId,
+      sourceDisplayId: payload.sourceDisplayId,
+      selectedSourceId: selectedSource == null ? void 0 : selectedSource.id,
+      selectedSourceDisplayId: selectedSource == null ? void 0 : selectedSource.display_id
     });
-    const s = ge.start(e, P ?? void 0);
-    return s.success ? console.info("[auto-zoom][main] Input tracking started", {
-      sessionId: e.sessionId
-    }) : console.warn("[auto-zoom][main] Input tracking failed to start", {
-      sessionId: e.sessionId,
-      message: s.message
-    }), s;
-  }), p.handle("stop-input-tracking", () => {
-    const r = ge.stop();
-    return r ? (console.info("[auto-zoom][main] Input tracking stopped with telemetry", {
-      sessionId: r.sessionId,
-      totalEvents: r.stats.totalEvents,
-      mouseDownCount: r.stats.mouseDownCount,
-      keyDownCount: r.stats.keyDownCount,
-      wheelCount: r.stats.wheelCount
-    }), { success: !0, telemetry: r }) : (console.warn("[auto-zoom][main] stop-input-tracking called with no active tracking session"), { success: !1, message: "No active input tracking session" });
-  }), p.handle("open-source-selector", () => {
-    const r = f();
-    if (r) {
-      r.focus();
+    const result = inputTrackingService.start(payload, selectedSource ?? void 0);
+    if (result.success) {
+      console.info("[auto-zoom][main] Input tracking started", {
+        sessionId: payload.sessionId
+      });
+    } else {
+      console.warn("[auto-zoom][main] Input tracking failed to start", {
+        sessionId: payload.sessionId,
+        message: result.message
+      });
+    }
+    return result;
+  });
+  ipcMain.handle("stop-input-tracking", () => {
+    const telemetry = inputTrackingService.stop();
+    if (telemetry) {
+      console.info("[auto-zoom][main] Input tracking stopped with telemetry", {
+        sessionId: telemetry.sessionId,
+        totalEvents: telemetry.stats.totalEvents,
+        mouseDownCount: telemetry.stats.mouseDownCount,
+        keyDownCount: telemetry.stats.keyDownCount,
+        wheelCount: telemetry.stats.wheelCount
+      });
+      return { success: true, telemetry };
+    }
+    console.warn("[auto-zoom][main] stop-input-tracking called with no active tracking session");
+    return { success: false, message: "No active input tracking session" };
+  });
+  ipcMain.handle("open-source-selector", () => {
+    const sourceSelectorWin = getSourceSelectorWindow();
+    if (sourceSelectorWin) {
+      sourceSelectorWin.focus();
       return;
     }
-    o();
-  }), p.handle("open-camera-preview-window", (r, e) => {
-    const s = w();
-    return s && s.close(), c(e).focus(), { success: !0 };
-  }), p.handle("close-camera-preview-window", () => (l(), { success: !0 })), p.handle("switch-to-editor", () => {
-    A();
-    const r = a();
-    r && r.close(), i();
-  }), p.handle("store-recorded-video", async (r, e, s) => {
+    createSourceSelectorWindow2();
+  });
+  ipcMain.handle("open-camera-preview-window", (_, deviceId) => {
+    const current = getCameraPreviewWindow2();
+    if (current) {
+      current.close();
+    }
+    const win = createCameraPreviewWindow2(deviceId);
+    win.focus();
+    return { success: true };
+  });
+  ipcMain.handle("close-camera-preview-window", () => {
+    closeCameraPreviewWindow2();
+    return { success: true };
+  });
+  ipcMain.handle("switch-to-editor", () => {
+    closeHudPopoverWindows();
+    const mainWin = getMainWindow();
+    if (mainWin) {
+      mainWin.close();
+    }
+    createEditorWindow2();
+  });
+  ipcMain.handle("store-recorded-video", async (_, videoData, fileName) => {
     try {
-      const n = d.join(_, s);
-      return await k.writeFile(n, Buffer.from(e)), V = n, M = null, {
-        success: !0,
-        path: n,
+      const videoPath = path.join(RECORDINGS_DIR, fileName);
+      await fs$1.writeFile(videoPath, Buffer.from(videoData));
+      currentVideoPath = videoPath;
+      currentRecordingSession = null;
+      return {
+        success: true,
+        path: videoPath,
         message: "Video stored successfully"
       };
-    } catch (n) {
-      return console.error("Failed to store video:", n), {
-        success: !1,
+    } catch (error) {
+      console.error("Failed to store video:", error);
+      return {
+        success: false,
         message: "Failed to store video",
-        error: String(n)
+        error: String(error)
       };
     }
-  }), p.handle("start-new-recording-session", async (r, e) => (!!(e != null && e.replaceCurrentTake) && (e != null && e.session) && (await J(e.session.screenVideoPath), await J(e.session.cameraVideoPath), await J(e.session.inputTelemetryPath)), M = null, V = null, A(), t(), { success: !0 })), p.handle("get-hud-settings", () => ({ success: !0, settings: b })), p.handle("preload-hud-popover-windows", () => {
-    const r = a();
-    if (!r || r.isDestroyed())
-      return { success: !1, message: "HUD window unavailable" };
-    const e = r.getBounds(), s = { x: Math.max(16, Math.floor(e.width / 2) - 10), y: Math.max(16, Math.floor(e.height / 2) - 10), width: 20, height: 20 };
-    return ["recording", "media"].forEach((n) => {
-      const u = x(n);
-      if (u && !u.isDestroyed())
+  });
+  ipcMain.handle("start-new-recording-session", async (_, payload) => {
+    const replaceCurrentTake = Boolean(payload == null ? void 0 : payload.replaceCurrentTake);
+    if (replaceCurrentTake && (payload == null ? void 0 : payload.session)) {
+      await deleteFileIfExists(payload.session.screenVideoPath);
+      await deleteFileIfExists(payload.session.cameraVideoPath);
+      await deleteFileIfExists(payload.session.inputTelemetryPath);
+    }
+    currentRecordingSession = null;
+    currentVideoPath = null;
+    closeHudPopoverWindows();
+    createHudOverlayWindow2();
+    return { success: true };
+  });
+  ipcMain.handle("get-hud-settings", () => {
+    return { success: true, settings: hudSettings };
+  });
+  ipcMain.handle("preload-hud-popover-windows", () => {
+    const mainWin = getMainWindow();
+    if (!mainWin || mainWin.isDestroyed()) {
+      return { success: false, message: "HUD window unavailable" };
+    }
+    const mainBounds = mainWin.getBounds();
+    const baseAnchor = { x: Math.max(16, Math.floor(mainBounds.width / 2) - 10), y: Math.max(16, Math.floor(mainBounds.height / 2) - 10), width: 20, height: 20 };
+    ["recording", "media"].forEach((kind) => {
+      const existing = getPopoverWindow(kind);
+      if (existing && !existing.isDestroyed()) {
         return;
-      const m = H(e, n, s, "top");
-      j(n, m);
-    }), { success: !0 };
-  }), p.handle("update-hud-settings", (r, e) => (typeof e.micEnabled == "boolean" && (b.micEnabled = e.micEnabled), typeof e.selectedMicDeviceId == "string" && (b.selectedMicDeviceId = e.selectedMicDeviceId), (e.micProcessingMode === "raw" || e.micProcessingMode === "cleaned") && (b.micProcessingMode = e.micProcessingMode), typeof e.cameraEnabled == "boolean" && (b.cameraEnabled = e.cameraEnabled), typeof e.cameraPreviewEnabled == "boolean" && (b.cameraPreviewEnabled = e.cameraPreviewEnabled), typeof e.selectedCameraDeviceId == "string" && (b.selectedCameraDeviceId = e.selectedCameraDeviceId), (e.recordingPreset === "performance" || e.recordingPreset === "balanced" || e.recordingPreset === "quality") && (b.recordingPreset = e.recordingPreset), (e.recordingFps === 60 || e.recordingFps === 120) && (b.recordingFps = e.recordingFps), typeof e.customCursorEnabled == "boolean" && (b.customCursorEnabled = e.customCursorEnabled, e.customCursorEnabled && (b.useLegacyRecorder = !1)), typeof e.useLegacyRecorder == "boolean" && (b.useLegacyRecorder = e.useLegacyRecorder, e.useLegacyRecorder && (b.customCursorEnabled = !1)), (e.recordingEncoder === "h264_libx264" || e.recordingEncoder === "h264_nvenc" || e.recordingEncoder === "hevc_nvenc" || e.recordingEncoder === "h264_amf") && (b.recordingEncoder = e.recordingEncoder), B(), { success: !0, settings: b })), p.handle("set-hud-encoder-options", (r, e) => {
-    var n;
-    if (!Array.isArray(e))
-      return { success: !1, message: "Invalid encoder options payload" };
-    const s = e.filter((u) => !!u && typeof u == "object" && (u.encoder === "h264_libx264" || u.encoder === "h264_nvenc" || u.encoder === "hevc_nvenc" || u.encoder === "h264_amf") && typeof u.label == "string" && (u.hardware === "cpu" || u.hardware === "nvidia" || u.hardware === "amd"));
-    return s.some((u) => u.encoder === "h264_libx264") || s.unshift({ encoder: "h264_libx264", label: "x264 (CPU)", hardware: "cpu" }), b.encoderOptions = s, b.encoderOptions.some((u) => u.encoder === b.recordingEncoder) || (b.recordingEncoder = ((n = b.encoderOptions[0]) == null ? void 0 : n.encoder) ?? "h264_libx264"), B(), { success: !0, settings: b };
-  }), p.handle("native-capture-encoder-options", async () => {
-    const r = ne(), e = K.existsSync(r) ? r : void 0;
-    return await se.getEncoderOptions(e);
-  }), p.handle("native-capture-start", async (r, e) => {
-    var g, y;
-    const s = ne(), n = ((g = e.source) == null ? void 0 : g.displayId) || (typeof (P == null ? void 0 : P.display_id) == "string" ? P.display_id : void 0), u = ((y = e.source) == null ? void 0 : y.type) === "screen" ? Ge(n) : void 0, m = {
-      ...e,
-      outputPath: d.isAbsolute(e.outputPath) ? e.outputPath : d.join(_, e.outputPath),
-      ffmpegPath: e.ffmpegPath || (K.existsSync(s) ? s : void 0),
-      captureRegion: e.captureRegion || u
+      }
+      const bounds = computePopoverBounds(mainBounds, kind, baseAnchor, "top");
+      createHudPopoverWindow(kind, bounds);
+    });
+    return { success: true };
+  });
+  ipcMain.handle("update-hud-settings", (_, partial) => {
+    if (typeof partial.micEnabled === "boolean") hudSettings.micEnabled = partial.micEnabled;
+    if (typeof partial.selectedMicDeviceId === "string") hudSettings.selectedMicDeviceId = partial.selectedMicDeviceId;
+    if (partial.micProcessingMode === "raw" || partial.micProcessingMode === "cleaned") hudSettings.micProcessingMode = partial.micProcessingMode;
+    if (typeof partial.cameraEnabled === "boolean") hudSettings.cameraEnabled = partial.cameraEnabled;
+    if (typeof partial.cameraPreviewEnabled === "boolean") hudSettings.cameraPreviewEnabled = partial.cameraPreviewEnabled;
+    if (typeof partial.selectedCameraDeviceId === "string") hudSettings.selectedCameraDeviceId = partial.selectedCameraDeviceId;
+    if (partial.recordingPreset === "performance" || partial.recordingPreset === "balanced" || partial.recordingPreset === "quality") {
+      hudSettings.recordingPreset = partial.recordingPreset;
+    }
+    if (partial.recordingFps === 60 || partial.recordingFps === 120) hudSettings.recordingFps = partial.recordingFps;
+    if (typeof partial.customCursorEnabled === "boolean") {
+      hudSettings.customCursorEnabled = partial.customCursorEnabled;
+      if (partial.customCursorEnabled) {
+        hudSettings.useLegacyRecorder = false;
+      }
+    }
+    if (typeof partial.useLegacyRecorder === "boolean") {
+      hudSettings.useLegacyRecorder = partial.useLegacyRecorder;
+      if (partial.useLegacyRecorder) {
+        hudSettings.customCursorEnabled = false;
+      }
+    }
+    if (partial.recordingEncoder === "h264_libx264" || partial.recordingEncoder === "h264_nvenc" || partial.recordingEncoder === "hevc_nvenc" || partial.recordingEncoder === "h264_amf") {
+      hudSettings.recordingEncoder = partial.recordingEncoder;
+    }
+    broadcastHudSettings();
+    return { success: true, settings: hudSettings };
+  });
+  ipcMain.handle("set-hud-encoder-options", (_, options) => {
+    var _a;
+    if (!Array.isArray(options)) {
+      return { success: false, message: "Invalid encoder options payload" };
+    }
+    const normalized = options.filter((option) => Boolean(option) && typeof option === "object" && (option.encoder === "h264_libx264" || option.encoder === "h264_nvenc" || option.encoder === "hevc_nvenc" || option.encoder === "h264_amf") && typeof option.label === "string" && (option.hardware === "cpu" || option.hardware === "nvidia" || option.hardware === "amd"));
+    if (!normalized.some((option) => option.encoder === "h264_libx264")) {
+      normalized.unshift({ encoder: "h264_libx264", label: "x264 (CPU)", hardware: "cpu" });
+    }
+    hudSettings.encoderOptions = normalized;
+    if (!hudSettings.encoderOptions.some((option) => option.encoder === hudSettings.recordingEncoder)) {
+      hudSettings.recordingEncoder = ((_a = hudSettings.encoderOptions[0]) == null ? void 0 : _a.encoder) ?? "h264_libx264";
+    }
+    broadcastHudSettings();
+    return { success: true, settings: hudSettings };
+  });
+  ipcMain.handle("native-capture-encoder-options", async () => {
+    const packagedFfmpeg = resolvePackagedFfmpegPath();
+    const ffmpegPath = fs.existsSync(packagedFfmpeg) ? packagedFfmpeg : void 0;
+    const result = await nativeCaptureService.getEncoderOptions(ffmpegPath);
+    return result;
+  });
+  ipcMain.handle("native-capture-start", async (_, payload) => {
+    var _a, _b;
+    const packagedFfmpeg = resolvePackagedFfmpegPath();
+    const platform = process.platform;
+    const sourceDisplayId = ((_a = payload.source) == null ? void 0 : _a.displayId) || (typeof (selectedSource == null ? void 0 : selectedSource.display_id) === "string" ? selectedSource.display_id : void 0);
+    const captureRegion = platform === "win32" && ((_b = payload.source) == null ? void 0 : _b.type) === "screen" ? resolveCaptureRegionForDisplay(sourceDisplayId) : void 0;
+    const normalizedPayload = {
+      ...payload,
+      outputPath: path.isAbsolute(payload.outputPath) ? payload.outputPath : path.join(RECORDINGS_DIR, payload.outputPath),
+      ffmpegPath: payload.ffmpegPath || (fs.existsSync(packagedFfmpeg) ? packagedFfmpeg : void 0),
+      captureRegion: platform === "win32" ? payload.captureRegion || captureRegion : void 0
     };
-    return await se.start(m);
-  }), p.handle("native-capture-stop", async (r, e) => await se.stop(e)), p.handle("native-capture-status", (r, e) => ({ success: !0, ...se.getStatus(e) })), p.handle("open-hud-popover-window", (r, e) => e.kind !== "recording" && e.kind !== "media" ? { success: !1, message: "Invalid popover kind" } : z(e.kind, e.anchorRect, e.side)), p.handle("toggle-hud-popover-window", (r, e) => {
-    if (e.kind !== "recording" && e.kind !== "media")
-      return { success: !1, message: "Invalid popover kind" };
-    const s = x(e.kind);
-    return s && !s.isDestroyed() && s.isVisible() ? (s.hide(), { success: !0, opened: !1 }) : { ...z(e.kind, e.anchorRect, e.side), opened: !0 };
-  }), p.handle("close-hud-popover-window", (r, e) => {
-    if (!e)
-      return [X, Y].forEach((n) => {
-        n && !n.isDestroyed() && n.hide();
-      }), { success: !0 };
-    const s = x(e);
-    return s && !s.isDestroyed() && s.hide(), { success: !0 };
-  }), p.handle("close-current-hud-popover-window", (r) => {
-    const e = L.fromWebContents(r.sender);
-    return !e || e.isDestroyed() ? { success: !1 } : e === X ? (e.hide(), { success: !0 }) : e === Y ? (e.hide(), { success: !0 }) : (e.hide(), { success: !0 });
-  }), p.handle("set-hud-overlay-width", (r, e) => {
-    const s = a();
-    if (!s || s.isDestroyed())
-      return { success: !1 };
-    const n = Math.max(500, Math.min(1400, Math.round(e))), u = s.getBounds(), g = N.getDisplayMatching(u).workArea, y = u.x + u.width / 2, E = g.x + g.width - n, W = Math.round(y - n / 2), C = Math.max(g.x, Math.min(W, E)), T = g.y + g.height - u.height, R = Math.max(g.y, Math.min(u.y, T));
-    return s.setBounds({
-      x: C,
-      y: R,
-      width: n,
-      height: u.height
-    }, !1), { success: !0 };
-  }), p.handle("get-hud-overlay-popover-side", () => {
-    const r = a();
-    if (!r || r.isDestroyed())
-      return { success: !1 };
-    const e = r.getBounds(), n = N.getDisplayMatching(e).workArea, u = e.y + e.height / 2, m = n.y + n.height / 2;
-    return { success: !0, side: u >= m ? "top" : "bottom" };
-  }), p.handle("set-hud-overlay-height", (r, e, s = "bottom") => {
-    const n = a();
-    if (!n || n.isDestroyed())
-      return { success: !1 };
-    const u = Math.max(100, Math.min(720, Math.round(e))), m = n.getBounds(), y = N.getDisplayMatching(m).workArea, E = y.x + y.width - m.width, W = y.y + y.height - u, C = Math.max(y.x, Math.min(m.x, E)), T = s === "top" ? m.y : m.y + m.height - u, R = Math.max(y.y, Math.min(T, W));
-    return n.setBounds({
-      x: C,
-      y: R,
-      width: m.width,
-      height: u
-    }, !1), { success: !0 };
-  }), p.handle("store-recording-session", async (r, e) => {
+    return await nativeCaptureService.start(normalizedPayload);
+  });
+  ipcMain.handle("native-capture-stop", async (_, payload) => {
+    return await nativeCaptureService.stop(payload);
+  });
+  ipcMain.handle("native-capture-status", (_, sessionId) => {
+    return { success: true, ...nativeCaptureService.getStatus(sessionId) };
+  });
+  ipcMain.handle("open-hud-popover-window", (_, payload) => {
+    if (payload.kind !== "recording" && payload.kind !== "media") {
+      return { success: false, message: "Invalid popover kind" };
+    }
+    return openHudPopoverWindow(payload.kind, payload.anchorRect, payload.side);
+  });
+  ipcMain.handle("toggle-hud-popover-window", (_, payload) => {
+    if (payload.kind !== "recording" && payload.kind !== "media") {
+      return { success: false, message: "Invalid popover kind" };
+    }
+    const existing = getPopoverWindow(payload.kind);
+    if (existing && !existing.isDestroyed() && existing.isVisible()) {
+      existing.hide();
+      return { success: true, opened: false };
+    }
+    const result = openHudPopoverWindow(payload.kind, payload.anchorRect, payload.side);
+    return { ...result, opened: true };
+  });
+  ipcMain.handle("close-hud-popover-window", (_, kind) => {
+    if (!kind) {
+      [recordingPopoverWindow, mediaPopoverWindow].forEach((win2) => {
+        if (win2 && !win2.isDestroyed()) {
+          win2.hide();
+        }
+      });
+      return { success: true };
+    }
+    const win = getPopoverWindow(kind);
+    if (win && !win.isDestroyed()) {
+      win.hide();
+    }
+    return { success: true };
+  });
+  ipcMain.handle("close-current-hud-popover-window", (event) => {
+    const senderWindow = BrowserWindow.fromWebContents(event.sender);
+    if (!senderWindow || senderWindow.isDestroyed()) {
+      return { success: false };
+    }
+    if (senderWindow === recordingPopoverWindow) {
+      senderWindow.hide();
+      return { success: true };
+    }
+    if (senderWindow === mediaPopoverWindow) {
+      senderWindow.hide();
+      return { success: true };
+    }
+    senderWindow.hide();
+    return { success: true };
+  });
+  ipcMain.handle("set-hud-overlay-width", (_, width) => {
+    const mainWin = getMainWindow();
+    if (!mainWin || mainWin.isDestroyed()) {
+      return { success: false };
+    }
+    const clampedWidth = Math.max(500, Math.min(1400, Math.round(width)));
+    const bounds = mainWin.getBounds();
+    const display = screen.getDisplayMatching(bounds);
+    const workArea = display.workArea;
+    const centerX = bounds.x + bounds.width / 2;
+    const maxX = workArea.x + workArea.width - clampedWidth;
+    const idealX = Math.round(centerX - clampedWidth / 2);
+    const x = Math.max(workArea.x, Math.min(idealX, maxX));
+    const maxY = workArea.y + workArea.height - bounds.height;
+    const y = Math.max(workArea.y, Math.min(bounds.y, maxY));
+    mainWin.setBounds({
+      x,
+      y,
+      width: clampedWidth,
+      height: bounds.height
+    }, false);
+    return { success: true };
+  });
+  ipcMain.handle("get-hud-overlay-popover-side", () => {
+    const mainWin = getMainWindow();
+    if (!mainWin || mainWin.isDestroyed()) {
+      return { success: false };
+    }
+    const bounds = mainWin.getBounds();
+    const display = screen.getDisplayMatching(bounds);
+    const workArea = display.workArea;
+    const hudCenterY = bounds.y + bounds.height / 2;
+    const screenCenterY = workArea.y + workArea.height / 2;
+    const side = hudCenterY >= screenCenterY ? "top" : "bottom";
+    return { success: true, side };
+  });
+  ipcMain.handle("set-hud-overlay-height", (_, height, anchor = "bottom") => {
+    const mainWin = getMainWindow();
+    if (!mainWin || mainWin.isDestroyed()) {
+      return { success: false };
+    }
+    const clampedHeight = Math.max(100, Math.min(720, Math.round(height)));
+    const bounds = mainWin.getBounds();
+    const display = screen.getDisplayMatching(bounds);
+    const workArea = display.workArea;
+    const maxX = workArea.x + workArea.width - bounds.width;
+    const maxY = workArea.y + workArea.height - clampedHeight;
+    const x = Math.max(workArea.x, Math.min(bounds.x, maxX));
+    const idealY = anchor === "top" ? bounds.y : bounds.y + bounds.height - clampedHeight;
+    const y = Math.max(workArea.y, Math.min(idealY, maxY));
+    mainWin.setBounds({
+      x,
+      y,
+      width: bounds.width,
+      height: clampedHeight
+    }, false);
+    return { success: true };
+  });
+  ipcMain.handle("store-recording-session", async (_, payload) => {
     try {
       console.info("[auto-zoom][main] store-recording-session requested", {
-        sessionId: typeof e.session.id == "string" ? e.session.id : void 0,
-        screenFileName: e.screenFileName,
-        hasCameraVideo: !!(e.cameraVideoData && e.cameraFileName),
-        hasTelemetry: !!e.inputTelemetry
+        sessionId: typeof payload.session.id === "string" ? payload.session.id : void 0,
+        screenFileName: payload.screenFileName,
+        hasCameraVideo: Boolean(payload.cameraVideoData && payload.cameraFileName),
+        hasTelemetry: Boolean(payload.inputTelemetry)
       });
-      const s = d.join(_, e.screenFileName);
-      await k.writeFile(s, Buffer.from(e.screenVideoData));
-      let n;
-      e.cameraVideoData && e.cameraFileName && (n = d.join(_, e.cameraFileName), await k.writeFile(n, Buffer.from(e.cameraVideoData)));
-      let u, m;
-      if (e.inputTelemetry) {
-        const y = e.inputTelemetryFileName || `${d.parse(e.screenFileName).name}.telemetry.json`;
-        u = d.join(_, y), await k.writeFile(u, JSON.stringify(e.inputTelemetry), "utf-8"), m = e.inputTelemetry, console.info("[auto-zoom][main] Telemetry sidecar saved", {
-          inputTelemetryPath: u,
-          sessionId: e.inputTelemetry.sessionId,
-          totalEvents: e.inputTelemetry.stats.totalEvents
+      const screenVideoPath = path.join(RECORDINGS_DIR, payload.screenFileName);
+      await fs$1.writeFile(screenVideoPath, Buffer.from(payload.screenVideoData));
+      let cameraVideoPath;
+      if (payload.cameraVideoData && payload.cameraFileName) {
+        cameraVideoPath = path.join(RECORDINGS_DIR, payload.cameraFileName);
+        await fs$1.writeFile(cameraVideoPath, Buffer.from(payload.cameraVideoData));
+      }
+      let inputTelemetryPath;
+      let inputTelemetry;
+      if (payload.inputTelemetry) {
+        const telemetryFileName = payload.inputTelemetryFileName || `${path.parse(payload.screenFileName).name}.telemetry.json`;
+        inputTelemetryPath = path.join(RECORDINGS_DIR, telemetryFileName);
+        await fs$1.writeFile(inputTelemetryPath, JSON.stringify(payload.inputTelemetry), "utf-8");
+        inputTelemetry = payload.inputTelemetry;
+        console.info("[auto-zoom][main] Telemetry sidecar saved", {
+          inputTelemetryPath,
+          sessionId: payload.inputTelemetry.sessionId,
+          totalEvents: payload.inputTelemetry.stats.totalEvents
         });
-      } else
+      } else {
         console.warn("[auto-zoom][main] Recording session stored without telemetry payload", {
-          sessionId: typeof e.session.id == "string" ? e.session.id : void 0
+          sessionId: typeof payload.session.id === "string" ? payload.session.id : void 0
         });
-      const g = {
-        ...e.session,
-        screenVideoPath: s,
-        ...n ? { cameraVideoPath: n } : {},
-        ...u ? { inputTelemetryPath: u } : {},
-        ...m ? { inputTelemetry: m } : {}
+      }
+      const session2 = {
+        ...payload.session,
+        screenVideoPath,
+        ...cameraVideoPath ? { cameraVideoPath } : {},
+        ...inputTelemetryPath ? { inputTelemetryPath } : {},
+        ...inputTelemetry ? { inputTelemetry } : {}
       };
-      return M = g, V = s, console.info("[auto-zoom][main] Recording session stored in memory", {
-        sessionId: typeof e.session.id == "string" ? e.session.id : void 0,
-        screenVideoPath: s,
-        inputTelemetryPath: u
-      }), {
-        success: !0,
-        session: g,
+      currentRecordingSession = session2;
+      currentVideoPath = screenVideoPath;
+      console.info("[auto-zoom][main] Recording session stored in memory", {
+        sessionId: typeof payload.session.id === "string" ? payload.session.id : void 0,
+        screenVideoPath,
+        inputTelemetryPath
+      });
+      return {
+        success: true,
+        session: session2,
         message: "Recording session stored successfully"
       };
-    } catch (s) {
-      return console.error("[auto-zoom][main] Failed to store recording session", s), {
-        success: !1,
+    } catch (error) {
+      console.error("[auto-zoom][main] Failed to store recording session", error);
+      return {
+        success: false,
         message: "Failed to store recording session",
-        error: String(s)
+        error: String(error)
       };
     }
-  }), p.handle("store-native-recording-session", async (r, e) => {
+  });
+  ipcMain.handle("store-native-recording-session", async (_, payload) => {
     try {
-      let s = e.screenVideoPath;
-      if (!e.screenVideoPath.startsWith(_)) {
-        const T = `${d.parse(e.screenVideoPath).name}.mp4`;
-        s = await me(_, T), await k.copyFile(e.screenVideoPath, s);
+      let finalScreenVideoPath = payload.screenVideoPath;
+      if (!payload.screenVideoPath.startsWith(RECORDINGS_DIR)) {
+        const targetName = `${path.parse(payload.screenVideoPath).name}.mp4`;
+        finalScreenVideoPath = await getUniqueFilePath(RECORDINGS_DIR, targetName);
+        await fs$1.copyFile(payload.screenVideoPath, finalScreenVideoPath);
       }
-      let n = typeof e.session.micCaptured == "boolean" ? !!e.session.micCaptured : !1;
-      const u = typeof e.session.micStartOffsetMs == "number" ? Number(e.session.micStartOffsetMs) : 0;
-      let m;
-      if (e.micAudioData && e.micAudioFileName) {
-        m = d.join(_, e.micAudioFileName), await k.writeFile(m, Buffer.from(e.micAudioData));
-        const T = await Ie(s, m, u);
-        T.success ? n = !0 : console.warn("[native-capture][main] Failed to mux microphone audio into native capture", {
-          screenVideoPath: s,
-          micAudioPath: m,
-          message: T.message
-        });
+      let micCaptured = typeof payload.session.micCaptured === "boolean" ? Boolean(payload.session.micCaptured) : false;
+      const micStartOffsetMs = typeof payload.session.micStartOffsetMs === "number" ? Number(payload.session.micStartOffsetMs) : 0;
+      let micAudioPath;
+      if (payload.micAudioData && payload.micAudioFileName) {
+        micAudioPath = path.join(RECORDINGS_DIR, payload.micAudioFileName);
+        await fs$1.writeFile(micAudioPath, Buffer.from(payload.micAudioData));
+        const muxResult = await muxAudioIntoVideo(finalScreenVideoPath, micAudioPath, micStartOffsetMs);
+        if (muxResult.success) {
+          micCaptured = true;
+        } else {
+          console.warn("[native-capture][main] Failed to mux microphone audio into native capture", {
+            screenVideoPath: finalScreenVideoPath,
+            micAudioPath,
+            message: muxResult.message
+          });
+        }
       }
-      let g;
-      e.cameraVideoData && e.cameraFileName && (g = d.join(_, e.cameraFileName), await k.writeFile(g, Buffer.from(e.cameraVideoData)));
-      let y, E;
-      if (e.inputTelemetry) {
-        const T = e.inputTelemetryFileName || `${d.parse(s).name}.telemetry.json`;
-        y = d.join(_, T), await k.writeFile(y, JSON.stringify(e.inputTelemetry), "utf-8"), E = e.inputTelemetry;
+      let cameraVideoPath;
+      if (payload.cameraVideoData && payload.cameraFileName) {
+        cameraVideoPath = path.join(RECORDINGS_DIR, payload.cameraFileName);
+        await fs$1.writeFile(cameraVideoPath, Buffer.from(payload.cameraVideoData));
       }
-      const C = {
-        ...{
-          ...e.session,
-          micCaptured: n
-        },
-        screenVideoPath: s,
-        ...g ? { cameraVideoPath: g } : {},
-        ...y ? { inputTelemetryPath: y } : {},
-        ...E ? { inputTelemetry: E } : {}
+      let inputTelemetryPath;
+      let inputTelemetry;
+      if (payload.inputTelemetry) {
+        const telemetryFileName = payload.inputTelemetryFileName || `${path.parse(finalScreenVideoPath).name}.telemetry.json`;
+        inputTelemetryPath = path.join(RECORDINGS_DIR, telemetryFileName);
+        await fs$1.writeFile(inputTelemetryPath, JSON.stringify(payload.inputTelemetry), "utf-8");
+        inputTelemetry = payload.inputTelemetry;
+      }
+      const normalizedSession = {
+        ...payload.session,
+        micCaptured
       };
-      return M = C, V = s, await J(m), {
-        success: !0,
-        session: C,
+      const session2 = {
+        ...normalizedSession,
+        screenVideoPath: finalScreenVideoPath,
+        ...cameraVideoPath ? { cameraVideoPath } : {},
+        ...inputTelemetryPath ? { inputTelemetryPath } : {},
+        ...inputTelemetry ? { inputTelemetry } : {}
+      };
+      currentRecordingSession = session2;
+      currentVideoPath = finalScreenVideoPath;
+      await deleteFileIfExists(micAudioPath);
+      return {
+        success: true,
+        session: session2,
         message: "Native recording session stored successfully"
       };
-    } catch (s) {
-      return console.error("[native-capture][main] Failed to store native recording session", s), {
-        success: !1,
+    } catch (error) {
+      console.error("[native-capture][main] Failed to store native recording session", error);
+      return {
+        success: false,
         message: "Failed to store native recording session",
-        error: String(s)
+        error: String(error)
       };
     }
-  }), p.handle("get-recorded-video-path", async () => {
+  });
+  ipcMain.handle("get-recorded-video-path", async () => {
     try {
-      const e = (await k.readdir(_)).filter((u) => u.endsWith(".webm"));
-      if (e.length === 0)
-        return { success: !1, message: "No recorded video found" };
-      const s = e.sort().reverse()[0];
-      return { success: !0, path: d.join(_, s) };
-    } catch (r) {
-      return console.error("Failed to get video path:", r), { success: !1, message: "Failed to get video path", error: String(r) };
+      const files = await fs$1.readdir(RECORDINGS_DIR);
+      const videoFiles = files.filter((file) => file.endsWith(".webm"));
+      if (videoFiles.length === 0) {
+        return { success: false, message: "No recorded video found" };
+      }
+      const latestVideo = videoFiles.sort().reverse()[0];
+      const videoPath = path.join(RECORDINGS_DIR, latestVideo);
+      return { success: true, path: videoPath };
+    } catch (error) {
+      console.error("Failed to get video path:", error);
+      return { success: false, message: "Failed to get video path", error: String(error) };
     }
-  }), p.handle("set-recording-state", (r, e) => {
-    e && A(), h && h(e, (P || { name: "Screen" }).name ?? "Screen");
-  }), p.handle("open-external-url", async (r, e) => {
-    try {
-      return await pe.openExternal(e), { success: !0 };
-    } catch (s) {
-      return console.error("Failed to open URL:", s), { success: !1, error: String(s) };
+  });
+  ipcMain.handle("set-recording-state", (_, recording) => {
+    if (recording) {
+      closeHudPopoverWindows();
     }
-  }), p.handle("get-asset-base-path", () => {
-    try {
-      return D.isPackaged ? d.join(process.resourcesPath, "assets") : d.join(D.getAppPath(), "public", "assets");
-    } catch (r) {
-      return console.error("Failed to resolve asset base path:", r), null;
+    const source = selectedSource || { name: "Screen" };
+    if (onRecordingStateChange) {
+      onRecordingStateChange(recording, source.name ?? "Screen");
     }
-  }), p.handle("save-exported-video", async (r, e, s) => {
+  });
+  ipcMain.handle("open-external-url", async (_, url) => {
     try {
-      const n = s.toLowerCase().endsWith(".gif"), u = n ? [{ name: "GIF Image", extensions: ["gif"] }] : [{ name: "MP4 Video", extensions: ["mp4"] }], m = await ie.showSaveDialog({
-        title: n ? "Save Exported GIF" : "Save Exported Video",
-        defaultPath: d.join(D.getPath("downloads"), s),
-        filters: u,
+      await shell.openExternal(url);
+      return { success: true };
+    } catch (error) {
+      console.error("Failed to open URL:", error);
+      return { success: false, error: String(error) };
+    }
+  });
+  ipcMain.handle("get-asset-base-path", () => {
+    try {
+      if (app.isPackaged) {
+        return path.join(process.resourcesPath, "assets");
+      }
+      return path.join(app.getAppPath(), "public", "assets");
+    } catch (err) {
+      console.error("Failed to resolve asset base path:", err);
+      return null;
+    }
+  });
+  ipcMain.handle("save-exported-video", async (_, videoData, fileName) => {
+    try {
+      const isGif = fileName.toLowerCase().endsWith(".gif");
+      const filters = isGif ? [{ name: "GIF Image", extensions: ["gif"] }] : [{ name: "MP4 Video", extensions: ["mp4"] }];
+      const result = await dialog.showSaveDialog({
+        title: isGif ? "Save Exported GIF" : "Save Exported Video",
+        defaultPath: path.join(app.getPath("downloads"), fileName),
+        filters,
         properties: ["createDirectory", "showOverwriteConfirmation"]
       });
-      return m.canceled || !m.filePath ? {
-        success: !1,
-        cancelled: !0,
-        message: "Export cancelled"
-      } : (await k.writeFile(m.filePath, Buffer.from(e)), {
-        success: !0,
-        path: m.filePath,
+      if (result.canceled || !result.filePath) {
+        return {
+          success: false,
+          cancelled: true,
+          message: "Export cancelled"
+        };
+      }
+      await fs$1.writeFile(result.filePath, Buffer.from(videoData));
+      return {
+        success: true,
+        path: result.filePath,
         message: "Video exported successfully"
-      });
-    } catch (n) {
-      return console.error("Failed to save exported video:", n), {
-        success: !1,
+      };
+    } catch (error) {
+      console.error("Failed to save exported video:", error);
+      return {
+        success: false,
         message: "Failed to save exported video",
-        error: String(n)
+        error: String(error)
       };
     }
-  }), p.handle("get-default-export-directory", async () => {
+  });
+  ipcMain.handle("get-default-export-directory", async () => {
     try {
-      return await q(ce), { success: !0, path: ce };
-    } catch (r) {
-      return console.error("Failed to resolve default export directory:", r), { success: !1, message: "Failed to resolve default export directory", error: String(r) };
+      await ensureDirectoryExists(DEFAULT_EXPORTS_DIR);
+      return { success: true, path: DEFAULT_EXPORTS_DIR };
+    } catch (error) {
+      console.error("Failed to resolve default export directory:", error);
+      return { success: false, message: "Failed to resolve default export directory", error: String(error) };
     }
-  }), p.handle("choose-export-directory", async (r, e) => {
+  });
+  ipcMain.handle("choose-export-directory", async (_, currentPath) => {
     try {
-      const s = await ie.showOpenDialog({
+      const result = await dialog.showOpenDialog({
         title: "Choose Export Folder",
-        defaultPath: e || ce,
+        defaultPath: currentPath || DEFAULT_EXPORTS_DIR,
         properties: ["openDirectory", "createDirectory"]
       });
-      if (s.canceled || s.filePaths.length === 0)
-        return { success: !1, cancelled: !0, message: "Folder selection cancelled" };
-      const n = s.filePaths[0];
-      return await q(n), { success: !0, path: n };
-    } catch (s) {
-      return console.error("Failed to choose export directory:", s), { success: !1, message: "Failed to choose export directory", error: String(s) };
+      if (result.canceled || result.filePaths.length === 0) {
+        return { success: false, cancelled: true, message: "Folder selection cancelled" };
+      }
+      const selectedPath = result.filePaths[0];
+      await ensureDirectoryExists(selectedPath);
+      return { success: true, path: selectedPath };
+    } catch (error) {
+      console.error("Failed to choose export directory:", error);
+      return { success: false, message: "Failed to choose export directory", error: String(error) };
     }
-  }), p.handle("save-exported-video-to-directory", async (r, e, s, n) => {
+  });
+  ipcMain.handle("save-exported-video-to-directory", async (_, videoData, fileName, directoryPath) => {
     try {
-      await q(n);
-      const u = await me(n, s);
-      return await k.writeFile(u, Buffer.from(e)), {
-        success: !0,
-        path: u,
+      await ensureDirectoryExists(directoryPath);
+      const targetPath = await getUniqueFilePath(directoryPath, fileName);
+      await fs$1.writeFile(targetPath, Buffer.from(videoData));
+      return {
+        success: true,
+        path: targetPath,
         message: "Video exported successfully"
       };
-    } catch (u) {
-      return console.error("Failed to save exported video to directory:", u), {
-        success: !1,
+    } catch (error) {
+      console.error("Failed to save exported video to directory:", error);
+      return {
+        success: false,
         message: "Failed to save exported video",
-        error: String(u)
+        error: String(error)
       };
     }
-  }), p.handle("open-directory", async (r, e) => {
+  });
+  ipcMain.handle("open-directory", async (_, directoryPath) => {
     try {
-      await q(e);
-      const s = await pe.openPath(e);
-      return s ? { success: !1, message: s } : { success: !0 };
-    } catch (s) {
-      return console.error("Failed to open directory:", s), { success: !1, message: "Failed to open directory", error: String(s) };
+      await ensureDirectoryExists(directoryPath);
+      const errorMessage = await shell.openPath(directoryPath);
+      if (errorMessage) {
+        return { success: false, message: errorMessage };
+      }
+      return { success: true };
+    } catch (error) {
+      console.error("Failed to open directory:", error);
+      return { success: false, message: "Failed to open directory", error: String(error) };
     }
-  }), p.handle("open-video-file-picker", async () => {
+  });
+  ipcMain.handle("open-video-file-picker", async () => {
     try {
-      const r = await ie.showOpenDialog({
+      const result = await dialog.showOpenDialog({
         title: "Select Video File",
-        defaultPath: _,
+        defaultPath: RECORDINGS_DIR,
         filters: [
           { name: "Video Files", extensions: ["webm", "mp4", "mov", "avi", "mkv"] },
           { name: "All Files", extensions: ["*"] }
         ],
         properties: ["openFile"]
       });
-      return r.canceled || r.filePaths.length === 0 ? { success: !1, cancelled: !0 } : {
-        success: !0,
-        path: r.filePaths[0]
+      if (result.canceled || result.filePaths.length === 0) {
+        return { success: false, cancelled: true };
+      }
+      return {
+        success: true,
+        path: result.filePaths[0]
       };
-    } catch (r) {
-      return console.error("Failed to open file picker:", r), {
-        success: !1,
+    } catch (error) {
+      console.error("Failed to open file picker:", error);
+      return {
+        success: false,
         message: "Failed to open file picker",
-        error: String(r)
+        error: String(error)
       };
     }
-  }), p.handle("set-current-video-path", async (r, e) => {
-    V = e;
-    const s = await Ze(e);
-    return M = s ? {
+  });
+  ipcMain.handle("set-current-video-path", async (_, videoPath) => {
+    currentVideoPath = videoPath;
+    const loadedTelemetry = await loadTelemetryForVideo(videoPath);
+    currentRecordingSession = loadedTelemetry ? {
       id: `session-${Date.now()}`,
       startedAtMs: Date.now(),
-      screenVideoPath: e,
-      micEnabled: !1,
-      micCaptured: !1,
-      cameraEnabled: !1,
-      cameraCaptured: !1,
+      screenVideoPath: videoPath,
+      micEnabled: false,
+      micCaptured: false,
+      cameraEnabled: false,
+      cameraCaptured: false,
       screenDurationMs: 0,
-      inputTelemetryPath: s.path,
-      inputTelemetry: s.telemetry
-    } : null, console.info("[auto-zoom][main] set-current-video-path complete", {
-      videoPath: e,
-      hasTelemetry: !!s,
-      telemetryPath: s == null ? void 0 : s.path,
-      generatedSessionId: M == null ? void 0 : M.id
-    }), { success: !0 };
-  }), p.handle("get-current-video-path", () => V ? { success: !0, path: V } : { success: !1 }), p.handle("clear-current-video-path", () => (V = null, M = null, { success: !0 })), p.handle("set-current-recording-session", (r, e) => (M = e, V = typeof e.screenVideoPath == "string" ? e.screenVideoPath : null, console.info("[auto-zoom][main] set-current-recording-session", {
-    sessionId: typeof e.id == "string" ? e.id : void 0,
-    hasTelemetry: !!e.inputTelemetry,
-    telemetryPath: typeof e.inputTelemetryPath == "string" ? e.inputTelemetryPath : void 0
-  }), { success: !0 })), p.handle("get-current-recording-session", () => (console.info("[auto-zoom][main] get-current-recording-session", {
-    hasSession: !!M,
-    sessionId: typeof (M == null ? void 0 : M.id) == "string" ? M.id : void 0,
-    hasTelemetry: !!(M != null && M.inputTelemetry)
-  }), M ? { success: !0, session: M } : { success: !1 })), p.handle("get-platform", () => process.platform);
-}
-const tt = d.dirname(de(import.meta.url)), _ = d.join(D.getPath("userData"), "recordings"), he = d.join(D.getPath("temp"), "velocity-session-data");
-D.commandLine.appendSwitch("disable-gpu-shader-disk-cache");
-D.commandLine.appendSwitch("disk-cache-dir", d.join(he, "Cache"));
-D.setPath("sessionData", he);
-async function st() {
-  try {
-    await k.mkdir(_, { recursive: !0 }), console.log("RECORDINGS_DIR:", _), console.log("User Data Path:", D.getPath("userData"));
-  } catch (i) {
-    console.error("Failed to create recordings directory:", i);
-  }
-}
-async function rt() {
-  try {
-    await k.mkdir(he, { recursive: !0 });
-  } catch (i) {
-    console.error("Failed to create session data directory:", i);
-  }
-}
-process.env.APP_ROOT = d.join(tt, "..");
-const ue = process.env.VITE_DEV_SERVER_URL, gt = d.join(process.env.APP_ROOT, "dist-electron"), fe = d.join(process.env.APP_ROOT, "dist");
-process.env.VITE_PUBLIC = ue ? d.join(process.env.APP_ROOT, "public") : fe;
-let v = null, O = null, $ = null, Pe = "";
-const De = Me("velocity.png"), ot = Me("rec-button.png");
-function oe() {
-  v = xe();
-}
-function we() {
-  $ = new Ce(De), process.platform === "win32" && $.on("double-click", () => {
-    v && !v.isDestroyed() ? (v.isMinimized() && v.restore(), v.show(), v.focus()) : oe();
+      inputTelemetryPath: loadedTelemetry.path,
+      inputTelemetry: loadedTelemetry.telemetry
+    } : null;
+    console.info("[auto-zoom][main] set-current-video-path complete", {
+      videoPath,
+      hasTelemetry: Boolean(loadedTelemetry),
+      telemetryPath: loadedTelemetry == null ? void 0 : loadedTelemetry.path,
+      generatedSessionId: currentRecordingSession == null ? void 0 : currentRecordingSession.id
+    });
+    return { success: true };
+  });
+  ipcMain.handle("get-current-video-path", () => {
+    return currentVideoPath ? { success: true, path: currentVideoPath } : { success: false };
+  });
+  ipcMain.handle("clear-current-video-path", () => {
+    currentVideoPath = null;
+    currentRecordingSession = null;
+    return { success: true };
+  });
+  ipcMain.handle("set-current-recording-session", (_, session2) => {
+    currentRecordingSession = session2;
+    currentVideoPath = typeof session2.screenVideoPath === "string" ? session2.screenVideoPath : null;
+    console.info("[auto-zoom][main] set-current-recording-session", {
+      sessionId: typeof session2.id === "string" ? session2.id : void 0,
+      hasTelemetry: Boolean(session2.inputTelemetry),
+      telemetryPath: typeof session2.inputTelemetryPath === "string" ? session2.inputTelemetryPath : void 0
+    });
+    return { success: true };
+  });
+  ipcMain.handle("get-current-recording-session", () => {
+    console.info("[auto-zoom][main] get-current-recording-session", {
+      hasSession: Boolean(currentRecordingSession),
+      sessionId: typeof (currentRecordingSession == null ? void 0 : currentRecordingSession.id) === "string" ? currentRecordingSession.id : void 0,
+      hasTelemetry: Boolean(currentRecordingSession == null ? void 0 : currentRecordingSession.inputTelemetry)
+    });
+    return currentRecordingSession ? { success: true, session: currentRecordingSession } : { success: false };
+  });
+  ipcMain.handle("get-platform", () => {
+    return process.platform;
   });
 }
-function Me(i) {
-  return Te.createFromPath(d.join(process.env.VITE_PUBLIC || fe, i)).resize({
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const RECORDINGS_DIR = path.join(app.getPath("userData"), "recordings");
+const SESSION_DATA_DIR = path.join(app.getPath("temp"), "velocity-session-data");
+app.commandLine.appendSwitch("disable-gpu-shader-disk-cache");
+app.commandLine.appendSwitch("disk-cache-dir", path.join(SESSION_DATA_DIR, "Cache"));
+app.setPath("sessionData", SESSION_DATA_DIR);
+async function ensureRecordingsDir() {
+  try {
+    await fs$1.mkdir(RECORDINGS_DIR, { recursive: true });
+    console.log("RECORDINGS_DIR:", RECORDINGS_DIR);
+    console.log("User Data Path:", app.getPath("userData"));
+  } catch (error) {
+    console.error("Failed to create recordings directory:", error);
+  }
+}
+async function ensureSessionDataDir() {
+  try {
+    await fs$1.mkdir(SESSION_DATA_DIR, { recursive: true });
+  } catch (error) {
+    console.error("Failed to create session data directory:", error);
+  }
+}
+process.env.APP_ROOT = path.join(__dirname, "..");
+const VITE_DEV_SERVER_URL = process.env["VITE_DEV_SERVER_URL"];
+const MAIN_DIST = path.join(process.env.APP_ROOT, "dist-electron");
+const RENDERER_DIST = path.join(process.env.APP_ROOT, "dist");
+process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL ? path.join(process.env.APP_ROOT, "public") : RENDERER_DIST;
+let mainWindow = null;
+let sourceSelectorWindow = null;
+let tray = null;
+let selectedSourceName = "";
+const defaultTrayIcon = getTrayIcon("velocity.png");
+const recordingTrayIcon = getTrayIcon("rec-button.png");
+function createWindow() {
+  mainWindow = createHudOverlayWindow();
+}
+function createTray() {
+  tray = new Tray(defaultTrayIcon);
+  if (process.platform === "win32") {
+    tray.on("double-click", () => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        if (mainWindow.isMinimized()) {
+          mainWindow.restore();
+        }
+        mainWindow.show();
+        mainWindow.focus();
+      } else {
+        createWindow();
+      }
+    });
+  }
+}
+function getTrayIcon(filename) {
+  return nativeImage.createFromPath(path.join(process.env.VITE_PUBLIC || RENDERER_DIST, filename)).resize({
     width: 24,
     height: 24,
     quality: "best"
   });
 }
-function ye(i = !1) {
-  if (!$) return;
-  const t = i ? ot : De, o = i ? `Recording: ${Pe}` : "velocity", c = i ? [
+function updateTrayMenu(recording = false) {
+  if (!tray) return;
+  const trayIcon = recording ? recordingTrayIcon : defaultTrayIcon;
+  const trayToolTip = recording ? `Recording: ${selectedSourceName}` : "velocity";
+  const menuTemplate = recording ? [
     {
       label: "Stop Recording",
       click: () => {
-        v && !v.isDestroyed() && v.webContents.send("stop-recording-from-tray");
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send("stop-recording-from-tray");
+        }
       }
     }
   ] : [
     {
       label: "Open",
       click: () => {
-        v && !v.isDestroyed() ? v.isMinimized() && v.restore() : oe();
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.isMinimized() && mainWindow.restore();
+        } else {
+          createWindow();
+        }
       }
     },
     {
       label: "Quit",
       click: () => {
-        D.quit();
+        app.quit();
       }
     }
   ];
-  $.setImage(t), $.setToolTip(o), $.setContextMenu(Ae.buildFromTemplate(c));
+  tray.setImage(trayIcon);
+  tray.setToolTip(trayToolTip);
+  tray.setContextMenu(Menu.buildFromTemplate(menuTemplate));
 }
-function nt() {
-  v && (v.close(), v = null), le(), v = We();
+function createEditorWindowWrapper() {
+  if (mainWindow) {
+    mainWindow.close();
+    mainWindow = null;
+  }
+  closeCameraPreviewWindow();
+  mainWindow = createEditorWindow();
 }
-function it() {
-  v && (v.close(), v = null), le(), O && !O.isDestroyed() && O.close(), O = null, v = xe();
+function createHudOverlayWindowWrapper() {
+  if (mainWindow) {
+    mainWindow.close();
+    mainWindow = null;
+  }
+  closeCameraPreviewWindow();
+  if (sourceSelectorWindow && !sourceSelectorWindow.isDestroyed()) {
+    sourceSelectorWindow.close();
+  }
+  sourceSelectorWindow = null;
+  mainWindow = createHudOverlayWindow();
 }
-function at() {
-  return O = Ve(), O.on("closed", () => {
-    O = null;
-  }), O;
+function createSourceSelectorWindowWrapper() {
+  sourceSelectorWindow = createSourceSelectorWindow();
+  sourceSelectorWindow.on("closed", () => {
+    sourceSelectorWindow = null;
+  });
+  return sourceSelectorWindow;
 }
-D.on("window-all-closed", () => {
+app.on("window-all-closed", () => {
 });
-D.on("activate", () => {
-  L.getAllWindows().length === 0 && oe();
+app.on("activate", () => {
+  if (BrowserWindow.getAllWindows().length === 0) {
+    createWindow();
+  }
 });
-D.whenReady().then(async () => {
-  await rt(), _e.defaultSession.setDisplayMediaRequestHandler(async (t, o) => {
+app.whenReady().then(async () => {
+  await ensureSessionDataDir();
+  session.defaultSession.setDisplayMediaRequestHandler(async (_request, callback) => {
     try {
-      const c = Je(), l = await ve.getSources({
+      const selected = getSelectedSourceForDisplayMedia();
+      const sources = await desktopCapturer.getSources({
         types: ["screen", "window"],
         thumbnailSize: { width: 0, height: 0 },
-        fetchWindowIcons: !1
+        fetchWindowIcons: false
       });
-      let a = c != null && c.id ? l.find((f) => f.id === c.id) : void 0;
-      if (!a && (c != null && c.display_id) && (a = l.find((f) => f.display_id === c.display_id && f.id.startsWith("screen:"))), a || (a = l.find((f) => f.id.startsWith("screen:")) || l[0]), !a) {
-        o({});
+      let target = (selected == null ? void 0 : selected.id) ? sources.find((source) => source.id === selected.id) : void 0;
+      if (!target && (selected == null ? void 0 : selected.display_id)) {
+        target = sources.find((source) => source.display_id === selected.display_id && source.id.startsWith("screen:"));
+      }
+      if (!target) {
+        target = sources.find((source) => source.id.startsWith("screen:")) || sources[0];
+      }
+      if (!target) {
+        callback({});
         return;
       }
-      o({
-        video: a
+      callback({
+        video: target
       });
-    } catch (c) {
-      console.error("Display media handler failed:", c), o({});
+    } catch (error) {
+      console.error("Display media handler failed:", error);
+      callback({});
     }
-  }, { useSystemPicker: !1 });
-  const { ipcMain: i } = await import("electron");
-  i.on("hud-overlay-close", () => {
-    D.quit();
-  }), we(), ye(), await st(), et(
-    nt,
-    it,
-    at,
-    Oe,
-    le,
-    () => v,
-    () => O,
-    () => ze(),
-    (t, o) => {
-      Pe = o, $ || we(), ye(t), t || v && v.restore();
+  }, { useSystemPicker: false });
+  const { ipcMain: ipcMain2 } = await import("electron");
+  ipcMain2.on("hud-overlay-close", () => {
+    app.quit();
+  });
+  createTray();
+  updateTrayMenu();
+  await ensureRecordingsDir();
+  registerIpcHandlers(
+    createEditorWindowWrapper,
+    createHudOverlayWindowWrapper,
+    createSourceSelectorWindowWrapper,
+    createCameraPreviewWindow,
+    closeCameraPreviewWindow,
+    () => mainWindow,
+    () => sourceSelectorWindow,
+    () => getCameraPreviewWindow(),
+    (recording, sourceName) => {
+      selectedSourceName = sourceName;
+      if (!tray) createTray();
+      updateTrayMenu(recording);
+      if (!recording) {
+        if (mainWindow) mainWindow.restore();
+      }
     }
-  ), oe();
+  );
+  createWindow();
 });
 export {
-  gt as MAIN_DIST,
-  _ as RECORDINGS_DIR,
-  fe as RENDERER_DIST,
-  ue as VITE_DEV_SERVER_URL
+  MAIN_DIST,
+  RECORDINGS_DIR,
+  RENDERER_DIST,
+  VITE_DEV_SERVER_URL
 };

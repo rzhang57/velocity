@@ -60,6 +60,7 @@ interface VideoPlaybackProps {
   onSelectAnnotation?: (id: string | null) => void;
   onAnnotationPositionChange?: (id: string, position: { x: number; y: number }) => void;
   onAnnotationSizeChange?: (id: string, size: { width: number; height: number }) => void;
+  onSourceMetadata?: (metadata: { width: number; height: number; aspectRatio: number }) => void;
 }
 
 export interface VideoPlaybackRef {
@@ -109,6 +110,7 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(({
   onSelectAnnotation,
   onAnnotationPositionChange,
   onAnnotationSizeChange,
+  onSourceMetadata,
 }, ref) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const cameraVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -121,6 +123,7 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(({
   const [pixiReady, setPixiReady] = useState(false);
   const [videoReady, setVideoReady] = useState(false);
   const [cameraDuration, setCameraDuration] = useState(0);
+  const [sourceAspectRatioCss, setSourceAspectRatioCss] = useState<string | null>(null);
   const overlayRef = useRef<HTMLDivElement | null>(null);
   const focusIndicatorRef = useRef<HTMLDivElement | null>(null);
   const currentTimeRef = useRef(0);
@@ -911,7 +914,7 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(({
       const baseScale = baseScaleRef.current;
       const localX = (sourceX - cropBounds.startX) * baseScale;
       const localY = (sourceY - cropBounds.startY) * baseScale;
-      const radius = Math.max(5, baseScale * customCursorSizeRef.current * 9);
+      const radius = Math.max(9, baseScale * customCursorSizeRef.current * 14);
       eraser.circle(localX, localY, radius).fill({ color: 0xffffff, alpha: 1 });
     };
 
@@ -998,6 +1001,15 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(({
 
   const handleLoadedMetadata = (e: React.SyntheticEvent<HTMLVideoElement, Event>) => {
     const video = e.currentTarget;
+    if (video.videoWidth > 0 && video.videoHeight > 0) {
+      const sourceAspectRatio = video.videoWidth / video.videoHeight;
+      setSourceAspectRatioCss(`${video.videoWidth} / ${video.videoHeight}`);
+      onSourceMetadata?.({
+        width: video.videoWidth,
+        height: video.videoHeight,
+        aspectRatio: sourceAspectRatio,
+      });
+    }
     onDurationChange(video.duration);
     video.currentTime = 0;
     video.pause();
@@ -1093,7 +1105,7 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(({
     !isCameraHidden;
 
   return (
-    <div className="relative rounded-sm overflow-hidden" style={{ width: '100%', aspectRatio: formatAspectRatioForCSS(aspectRatio) }}>
+    <div className="relative rounded-sm overflow-hidden" style={{ width: '100%', aspectRatio: sourceAspectRatioCss || formatAspectRatioForCSS(aspectRatio) }}>
       {/* Background layer - always render as DOM element with blur */}
       <div
         className="absolute inset-0 bg-cover bg-center"

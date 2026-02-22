@@ -767,7 +767,7 @@ export class FrameRenderer {
 
     const localX = (sourceX - cropStartX) * this.layoutCache.baseScale;
     const localY = (sourceY - cropStartY) * this.layoutCache.baseScale;
-    const radius = Math.max(5, this.layoutCache.baseScale * (this.config.customCursorSize ?? 1.2) * 9);
+    const radius = Math.max(9, this.layoutCache.baseScale * (this.config.customCursorSize ?? 1.2) * 14);
     this.cursorEraserGraphics.circle(localX, localY, radius).fill({ color: 0xffffff, alpha: 1 });
   }
 
