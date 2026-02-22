@@ -973,7 +973,7 @@ export function registerIpcHandlers(
       currentVideoPath = finalScreenVideoPath
       await deleteFileIfExists(micAudioPath)
       console.info('[native-capture][main] Native recording session stored in memory', {
-        sessionId: typeof session.id === 'string' ? session.id : undefined,
+        sessionId: typeof payload.session.id === 'string' ? payload.session.id : undefined,
         screenVideoPath: finalScreenVideoPath,
         cameraVideoPath,
         inputTelemetryPath,
