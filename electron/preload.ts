@@ -227,4 +227,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getPlatform: () => {
     return ipcRenderer.invoke('get-platform')
   },
+  logRendererDiagnostic: (payload: {
+    level: 'log' | 'warn' | 'error'
+    scope: string
+    message: string
+    data?: unknown
+  }) => {
+    ipcRenderer.send('renderer-diagnostic-log', payload)
+  },
 })

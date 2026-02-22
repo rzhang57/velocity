@@ -159,6 +159,12 @@ interface Window {
     getCurrentRecordingSession: () => Promise<{ success: boolean; session?: Record<string, unknown> }>
     clearCurrentVideoPath: () => Promise<{ success: boolean }>
     getPlatform: () => Promise<string>
+    logRendererDiagnostic: (payload: {
+      level: 'log' | 'warn' | 'error'
+      scope: string
+      message: string
+      data?: unknown
+    }) => void
     hudOverlayHide: () => void;
     hudOverlayClose: () => void;
   }

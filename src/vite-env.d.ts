@@ -199,5 +199,11 @@ interface Window {
     setCurrentRecordingSession: (session: RecordingSession) => Promise<{ success: boolean }>
     getCurrentRecordingSession: () => Promise<{ success: boolean; session?: RecordingSession }>
     clearCurrentVideoPath: () => Promise<{ success: boolean }>
+    logRendererDiagnostic: (payload: {
+      level: 'log' | 'warn' | 'error'
+      scope: string
+      message: string
+      data?: unknown
+    }) => void
   }
 }

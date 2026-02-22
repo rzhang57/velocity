@@ -61,6 +61,7 @@ interface VideoPlaybackProps {
   onAnnotationPositionChange?: (id: string, position: { x: number; y: number }) => void;
   onAnnotationSizeChange?: (id: string, size: { width: number; height: number }) => void;
   onSourceMetadata?: (metadata: { width: number; height: number; aspectRatio: number }) => void;
+  debugDiagnostics?: boolean;
 }
 
 export interface VideoPlaybackRef {
@@ -111,7 +112,25 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(({
   onAnnotationPositionChange,
   onAnnotationSizeChange,
   onSourceMetadata,
+  debugDiagnostics = false,
 }, ref) => {
+  const debugPrefix = "[video-playback-debug]";
+  const logDebug = useCallback((level: 'log' | 'warn' | 'error', message: string, payload?: unknown) => {
+    if (!debugDiagnostics) return;
+    const logFn = level === 'log' ? console.log : level === 'warn' ? console.warn : console.error;
+    if (payload !== undefined) {
+      logFn(`${debugPrefix} ${message}`, payload);
+    } else {
+      logFn(`${debugPrefix} ${message}`);
+    }
+    window.electronAPI?.logRendererDiagnostic?.({
+      level,
+      scope: 'video-playback',
+      message,
+      data: payload,
+    });
+  }, [debugDiagnostics]);
+
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const cameraVideoRef = useRef<HTMLVideoElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -147,6 +166,9 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(({
   const trimRegionsRef = useRef<TrimRegion[]>([]);
   const motionBlurEnabledRef = useRef(motionBlurEnabled);
   const videoReadyRafRef = useRef<number | null>(null);
+  const hasLoadedMetadataRef = useRef(false);
+  const paddingRef = useRef(padding);
+  const borderRadiusRef = useRef(borderRadius);
   const resizeStateRef = useRef<{
     direction: 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
     startX: number;
@@ -203,6 +225,14 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(({
     const cameraContainer = cameraContainerRef.current;
 
     if (!container || !app || !videoSprite || !maskGraphics || !videoElement || !cameraContainer) {
+      logDebug('warn', 'layout skipped: missing required refs', {
+        hasContainer: Boolean(container),
+        hasApp: Boolean(app),
+        hasVideoSprite: Boolean(videoSprite),
+        hasMaskGraphics: Boolean(maskGraphics),
+        hasVideoElement: Boolean(videoElement),
+        hasCameraContainer: Boolean(cameraContainer),
+      });
       return;
     }
 
@@ -214,19 +244,60 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(({
       };
     }
 
-    const result = layoutVideoContentUtil({
-      container,
-      app,
-      videoSprite,
-      maskGraphics,
-      videoElement,
-      cropRegion,
-      lockedVideoDimensions: lockedVideoDimensionsRef.current,
-      borderRadius,
-      padding,
-    });
+    const hasInvalidLayoutInput = !Number.isFinite(borderRadius) || !Number.isFinite(padding);
+    if (hasInvalidLayoutInput) {
+      logDebug('error', 'layout input has invalid number', {
+        borderRadius,
+        padding,
+      });
+    }
+
+    let result: ReturnType<typeof layoutVideoContentUtil> = null;
+    try {
+      result = layoutVideoContentUtil({
+        container,
+        app,
+        videoSprite,
+        maskGraphics,
+        videoElement,
+        cropRegion,
+        lockedVideoDimensions: lockedVideoDimensionsRef.current,
+        borderRadius,
+        padding,
+      });
+    } catch (error) {
+      logDebug('error', 'layoutVideoContentUtil threw', {
+        error,
+        containerSize: { width: container.clientWidth, height: container.clientHeight },
+        videoSize: { width: videoElement.videoWidth, height: videoElement.videoHeight },
+        cropRegion,
+        borderRadius,
+        padding,
+      });
+      return;
+    }
 
     if (result) {
+      const hasInvalidResult =
+        !Number.isFinite(result.stageSize.width) ||
+        !Number.isFinite(result.stageSize.height) ||
+        !Number.isFinite(result.baseScale) ||
+        !Number.isFinite(result.baseOffset.x) ||
+        !Number.isFinite(result.baseOffset.y) ||
+        !Number.isFinite(result.maskRect.width) ||
+        !Number.isFinite(result.maskRect.height) ||
+        !Number.isFinite(result.maskRect.x) ||
+        !Number.isFinite(result.maskRect.y);
+
+      if (hasInvalidResult) {
+        logDebug('error', 'layout result contains invalid numbers', {
+          result,
+          cropRegion,
+          borderRadius,
+          padding,
+        });
+      }
+
       stageSizeRef.current = result.stageSize;
       videoSizeRef.current = result.videoSize;
       baseScaleRef.current = result.baseScale;
@@ -244,8 +315,24 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(({
         : null;
 
       updateOverlayForRegion(activeRegion);
+      logDebug('log', 'layout applied', {
+        stage: result.stageSize,
+        mask: result.maskRect,
+        baseScale: result.baseScale,
+        padding,
+        borderRadius,
+      });
+    } else {
+      logDebug('warn', 'layout returned null', {
+        containerSize: { width: container.clientWidth, height: container.clientHeight },
+        videoSize: { width: videoElement.videoWidth, height: videoElement.videoHeight },
+        lockedVideoDimensions: lockedVideoDimensionsRef.current,
+        cropRegion,
+        borderRadius,
+        padding,
+      });
     }
-  }, [updateOverlayForRegion, cropRegion, borderRadius, padding]);
+  }, [updateOverlayForRegion, cropRegion, borderRadius, padding, logDebug]);
 
   useEffect(() => {
     layoutVideoContentRef.current = layoutVideoContent;
@@ -461,6 +548,44 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(({
   }, [customCursorTelemetry, inputTelemetry]);
 
   useEffect(() => {
+    paddingRef.current = padding;
+    borderRadiusRef.current = borderRadius;
+  }, [padding, borderRadius]);
+
+  useEffect(() => {
+    logDebug('log', 'playback inputs updated', {
+      padding,
+      borderRadius,
+      cropRegion,
+      pixiReady,
+      videoReady,
+    });
+  }, [padding, borderRadius, cropRegion, pixiReady, videoReady, logDebug]);
+
+  useEffect(() => {
+    if (!debugDiagnostics) return;
+    const id = window.setTimeout(() => {
+      const app = appRef.current;
+      const container = containerRef.current;
+      const canvas = app?.canvas as HTMLCanvasElement | undefined;
+      const rect = container?.getBoundingClientRect();
+      logDebug('warn', 'post-padding state snapshot', {
+        padding,
+        pixiReady,
+        videoReady,
+        hasApp: Boolean(app),
+        hasCanvas: Boolean(canvas),
+        canvasConnected: Boolean(canvas?.isConnected),
+        canvasClientSize: canvas ? { width: canvas.clientWidth, height: canvas.clientHeight } : null,
+        containerClientSize: container ? { width: container.clientWidth, height: container.clientHeight } : null,
+        containerRect: rect ? { width: rect.width, height: rect.height } : null,
+        rendererSize: app ? { width: app.renderer.width, height: app.renderer.height } : null,
+      });
+    }, 120);
+    return () => window.clearTimeout(id);
+  }, [padding, pixiReady, videoReady, debugDiagnostics, logDebug]);
+
+  useEffect(() => {
     if (!pixiReady || !videoReady) return;
 
     const app = appRef.current;
@@ -490,48 +615,54 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(({
     }
 
     requestAnimationFrame(() => {
-      const container = cameraContainerRef.current;
-      const videoStage = videoContainerRef.current;
-      const sprite = videoSpriteRef.current;
-      const currentApp = appRef.current;
-      if (!container || !videoStage || !sprite || !currentApp) {
-        return;
+      try {
+        const container = cameraContainerRef.current;
+        const videoStage = videoContainerRef.current;
+        const sprite = videoSpriteRef.current;
+        const currentApp = appRef.current;
+        if (!container || !videoStage || !sprite || !currentApp) {
+          logDebug('warn', 'post-reset frame skipped due to missing refs');
+          return;
+        }
+
+        container.scale.set(1);
+        container.position.set(0, 0);
+        videoStage.scale.set(1);
+        videoStage.position.set(0, 0);
+        sprite.scale.set(1);
+        sprite.position.set(0, 0);
+
+        layoutVideoContentRef.current?.();
+
+        applyZoomTransform({
+          cameraContainer: container,
+          blurFilter: blurFilterRef.current,
+          stageSize: stageSizeRef.current,
+          baseMask: baseMaskRef.current,
+          zoomScale: 1,
+          focusX: DEFAULT_FOCUS.cx,
+          focusY: DEFAULT_FOCUS.cy,
+          motionIntensity: 0,
+          isPlaying: false,
+          motionBlurEnabled: motionBlurEnabledRef.current,
+        });
+
+        requestAnimationFrame(() => {
+          const finalApp = appRef.current;
+          if (wasPlaying && video) {
+            video.play().catch((error) => {
+              logDebug('warn', 'video resume after reset failed', error);
+            });
+          }
+          if (tickerWasStarted && finalApp?.ticker) {
+            finalApp.ticker.start();
+          }
+        });
+      } catch (error) {
+        logDebug('error', 'post-reset frame failed', error);
       }
-
-      container.scale.set(1);
-      container.position.set(0, 0);
-      videoStage.scale.set(1);
-      videoStage.position.set(0, 0);
-      sprite.scale.set(1);
-      sprite.position.set(0, 0);
-
-      layoutVideoContent();
-
-      applyZoomTransform({
-        cameraContainer: container,
-        blurFilter: blurFilterRef.current,
-        stageSize: stageSizeRef.current,
-        baseMask: baseMaskRef.current,
-        zoomScale: 1,
-        focusX: DEFAULT_FOCUS.cx,
-        focusY: DEFAULT_FOCUS.cy,
-        motionIntensity: 0,
-        isPlaying: false,
-        motionBlurEnabled: motionBlurEnabledRef.current,
-      });
-
-      requestAnimationFrame(() => {
-        const finalApp = appRef.current;
-        if (wasPlaying && video) {
-          video.play().catch(() => {
-          });
-        }
-        if (tickerWasStarted && finalApp?.ticker) {
-          finalApp.ticker.start();
-        }
-      });
     });
-  }, [pixiReady, videoReady, layoutVideoContent, cropRegion]);
+  }, [pixiReady, videoReady, cropRegion, logDebug]);
 
   useEffect(() => {
     if (!pixiReady || !videoReady) return;
@@ -543,19 +674,37 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(({
     }
 
     const observer = new ResizeObserver(() => {
-      layoutVideoContent();
+      try {
+        layoutVideoContentRef.current?.();
+      } catch (error) {
+        logDebug('error', 'resize observer layout failed', error);
+      }
     });
 
     observer.observe(container);
     return () => {
       observer.disconnect();
     };
-  }, [pixiReady, videoReady, layoutVideoContent]);
+  }, [pixiReady, videoReady, logDebug]);
 
   useEffect(() => {
     if (!pixiReady || !videoReady) return;
     updateOverlayForRegion(selectedZoom);
   }, [selectedZoom, pixiReady, videoReady, updateOverlayForRegion]);
+
+  useEffect(() => {
+    if (!pixiReady || !videoReady) return;
+    try {
+      layoutVideoContentRef.current?.();
+      logDebug('log', 'applied manual relayout for style controls', {
+        padding,
+        borderRadius,
+        cropRegion,
+      });
+    } catch (error) {
+      logDebug('error', 'manual relayout failed', error);
+    }
+  }, [pixiReady, videoReady, padding, borderRadius, cropRegion, logDebug]);
 
   useEffect(() => {
     const overlayEl = overlayRef.current;
@@ -575,58 +724,95 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(({
 
     let mounted = true;
     let app: Application | null = null;
+    let canvas: HTMLCanvasElement | null = null;
+    let handleContextLost: ((event: Event) => void) | null = null;
+    let handleContextRestored: (() => void) | null = null;
 
     (async () => {
-      app = new Application();
-      
-      await app.init({
-        width: container.clientWidth,
-        height: container.clientHeight,
-        backgroundAlpha: 0,
-        antialias: true,
-        resolution: Math.max(0.25, (window.devicePixelRatio || 1) * previewScale),
-        autoDensity: true,
-      });
+      try {
+        app = new Application();
 
-      app.ticker.maxFPS = 60;
+        const resolution = Math.max(0.25, (window.devicePixelRatio || 1) * previewScale);
+        logDebug('log', 'initializing pixi app', {
+          containerSize: { width: container.clientWidth, height: container.clientHeight },
+          previewScale,
+          devicePixelRatio: window.devicePixelRatio || 1,
+          resolution,
+        });
 
-      if (!mounted) {
-        app.destroy(true, { children: true, texture: true, textureSource: true });
-        return;
+        await app.init({
+          width: container.clientWidth,
+          height: container.clientHeight,
+          backgroundAlpha: 0,
+          antialias: true,
+          resolution,
+          autoDensity: true,
+        });
+
+        app.ticker.maxFPS = 60;
+
+        if (!mounted) {
+          app.destroy(true, { children: true, texture: true, textureSource: true });
+          return;
+        }
+
+        appRef.current = app;
+        container.appendChild(app.canvas);
+        canvas = app.canvas as HTMLCanvasElement;
+        handleContextLost = (event: Event) => {
+          event.preventDefault();
+          logDebug('error', 'webgl context lost', {
+            padding: paddingRef.current,
+            borderRadius: borderRadiusRef.current,
+            previewScale,
+            devicePixelRatio: window.devicePixelRatio || 1,
+          });
+        };
+        handleContextRestored = () => {
+          logDebug('warn', 'webgl context restored');
+        };
+        canvas.addEventListener('webglcontextlost', handleContextLost, { passive: false });
+        canvas.addEventListener('webglcontextrestored', handleContextRestored);
+
+        // Camera container - this will be scaled/positioned for zoom
+        const cameraContainer = new Container();
+        cameraContainerRef.current = cameraContainer;
+        app.stage.addChild(cameraContainer);
+
+        // Video container - holds the masked video sprite
+        const videoContainer = new Container();
+        videoContainerRef.current = videoContainer;
+        cameraContainer.addChild(videoContainer);
+
+        const trailGraphics = new Graphics();
+        trailGraphicsRef.current = trailGraphics;
+        cameraContainer.addChild(trailGraphics);
+
+        const cursorEraserGraphics = new Graphics();
+        cursorEraserGraphics.blendMode = 'erase';
+        cursorEraserGraphicsRef.current = cursorEraserGraphics;
+        videoContainer.addChild(cursorEraserGraphics);
+
+        const customCursorGraphics = new Graphics();
+        customCursorGraphicsRef.current = customCursorGraphics;
+        cameraContainer.addChild(customCursorGraphics);
+        
+        setPixiReady(true);
+        logDebug('log', 'pixi app initialized');
+      } catch (error) {
+        logDebug('error', 'pixi initialization failed', error);
       }
-
-      appRef.current = app;
-      container.appendChild(app.canvas);
-
-      // Camera container - this will be scaled/positioned for zoom
-      const cameraContainer = new Container();
-      cameraContainerRef.current = cameraContainer;
-      app.stage.addChild(cameraContainer);
-
-      // Video container - holds the masked video sprite
-      const videoContainer = new Container();
-      videoContainerRef.current = videoContainer;
-      cameraContainer.addChild(videoContainer);
-
-      const trailGraphics = new Graphics();
-      trailGraphicsRef.current = trailGraphics;
-      cameraContainer.addChild(trailGraphics);
-
-      const cursorEraserGraphics = new Graphics();
-      cursorEraserGraphics.blendMode = 'erase';
-      cursorEraserGraphicsRef.current = cursorEraserGraphics;
-      videoContainer.addChild(cursorEraserGraphics);
-
-      const customCursorGraphics = new Graphics();
-      customCursorGraphicsRef.current = customCursorGraphics;
-      cameraContainer.addChild(customCursorGraphics);
-      
-      setPixiReady(true);
     })();
 
     return () => {
       mounted = false;
       setPixiReady(false);
+      if (canvas && handleContextLost) {
+        canvas.removeEventListener('webglcontextlost', handleContextLost);
+      }
+      if (canvas && handleContextRestored) {
+        canvas.removeEventListener('webglcontextrestored', handleContextRestored);
+      }
       if (app && app.renderer) {
         app.destroy(true, { children: true, texture: true, textureSource: true });
       }
@@ -638,7 +824,7 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(({
       customCursorGraphicsRef.current = null;
       cursorEraserGraphicsRef.current = null;
     };
-  }, [previewScale]);
+  }, [previewScale, logDebug]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -647,6 +833,7 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(({
     video.currentTime = 0;
     allowPlaybackRef.current = false;
     lockedVideoDimensionsRef.current = null;
+    hasLoadedMetadataRef.current = false;
     setVideoReady(false);
     if (videoReadyRafRef.current) {
       cancelAnimationFrame(videoReadyRafRef.current);
@@ -690,23 +877,41 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(({
     if (!video || !app || !videoContainer) return;
     if (video.videoWidth === 0 || video.videoHeight === 0) return;
     
-    const source = VideoSource.from(video);
-    if ('autoPlay' in source) {
-      (source as { autoPlay?: boolean }).autoPlay = false;
+    let videoTexture: Texture | null = null;
+    let videoSprite: Sprite | null = null;
+    let maskGraphics: Graphics | null = null;
+    try {
+      const source = VideoSource.from(video);
+      if ('autoPlay' in source) {
+        (source as { autoPlay?: boolean }).autoPlay = false;
+      }
+      if ('autoUpdate' in source) {
+        (source as { autoUpdate?: boolean }).autoUpdate = true;
+      }
+      videoTexture = Texture.from(source);
+      
+      videoSprite = new Sprite(videoTexture);
+      videoSpriteRef.current = videoSprite;
+      
+      maskGraphics = new Graphics();
+      videoContainer.addChild(videoSprite);
+      videoContainer.addChild(maskGraphics);
+      videoContainer.mask = maskGraphics;
+      maskGraphicsRef.current = maskGraphics;
+      logDebug('log', 'video sprite + mask created', {
+        videoWidth: video.videoWidth,
+        videoHeight: video.videoHeight,
+        readyState: video.readyState,
+      });
+    } catch (error) {
+      logDebug('error', 'failed creating video texture/sprite', {
+        error,
+        videoWidth: video.videoWidth,
+        videoHeight: video.videoHeight,
+        readyState: video.readyState,
+      });
+      return;
     }
-    if ('autoUpdate' in source) {
-      (source as { autoUpdate?: boolean }).autoUpdate = true;
-    }
-    const videoTexture = Texture.from(source);
-    
-    const videoSprite = new Sprite(videoTexture);
-    videoSpriteRef.current = videoSprite;
-    
-    const maskGraphics = new Graphics();
-    videoContainer.addChild(videoSprite);
-    videoContainer.addChild(maskGraphics);
-    videoContainer.mask = maskGraphics;
-    maskGraphicsRef.current = maskGraphics;
 
     animationStateRef.current = {
       scale: 1,
@@ -721,7 +926,7 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(({
     videoContainer.filters = [blurFilter];
     blurFilterRef.current = blurFilter;
     
-    layoutVideoContent();
+    layoutVideoContentRef.current?.();
     video.pause();
 
     const { handlePlay, handlePause, handleSeeked, handleSeeking } = createVideoEventHandlers({
@@ -769,11 +974,11 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(({
         blurFilterRef.current.destroy();
         blurFilterRef.current = null;
       }
-      videoTexture.destroy(true);
+      videoTexture?.destroy(true);
       
       videoSpriteRef.current = null;
     };
-  }, [pixiReady, videoReady, onTimeUpdate, updateOverlayForRegion, layoutVideoContent, onPlayStateChange]);
+  }, [pixiReady, videoReady, onTimeUpdate, updateOverlayForRegion, onPlayStateChange, logDebug]);
 
   useEffect(() => {
     if (!pixiReady || !videoReady) return;
@@ -919,7 +1124,8 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(({
     };
 
     const ticker = () => {
-      const { region, strength } = findDominantRegion(zoomRegionsRef.current, currentTimeRef.current);
+      try {
+        const { region, strength } = findDominantRegion(zoomRegionsRef.current, currentTimeRef.current);
       
       const defaultFocus = DEFAULT_FOCUS;
       let targetScaleFactor = 1;
@@ -985,10 +1191,21 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(({
         Math.abs(nextFocusY - prevFocusY)
       );
 
-      applyTransform(motionIntensity);
-      drawCursorTrail();
-      eraseNativeCursor();
-      drawCustomCursorOverlay();
+        applyTransform(motionIntensity);
+        drawCursorTrail();
+        eraseNativeCursor();
+        drawCustomCursorOverlay();
+      } catch (error) {
+        logDebug('error', 'ticker loop failed', {
+          error,
+          currentTimeMs: currentTimeRef.current,
+          selectedZoomId: selectedZoomIdRef.current,
+          stageSize: stageSizeRef.current,
+          baseMask: baseMaskRef.current,
+          padding,
+          borderRadius,
+        });
+      }
     };
 
     app.ticker.add(ticker);
@@ -997,10 +1214,19 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(({
         app.ticker.remove(ticker);
       }
     };
-  }, [pixiReady, videoReady, clampFocusToStage]);
+  }, [pixiReady, videoReady, clampFocusToStage, logDebug, padding, borderRadius]);
 
   const handleLoadedMetadata = (e: React.SyntheticEvent<HTMLVideoElement, Event>) => {
     const video = e.currentTarget;
+    hasLoadedMetadataRef.current = true;
+    logDebug('log', 'video metadata loaded', {
+      duration: video.duration,
+      videoWidth: video.videoWidth,
+      videoHeight: video.videoHeight,
+      readyState: video.readyState,
+      networkState: video.networkState,
+      videoPath,
+    });
     if (video.videoWidth > 0 && video.videoHeight > 0) {
       const sourceAspectRatio = video.videoWidth / video.videoHeight;
       setSourceAspectRatioCss(`${video.videoWidth} / ${video.videoHeight}`);
@@ -1027,12 +1253,31 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(({
       if (hasDimensions && hasData) {
         videoReadyRafRef.current = null;
         setVideoReady(true);
+        logDebug('log', 'video renderable frame ready', {
+          readyState: video.readyState,
+          currentTime: video.currentTime,
+          videoWidth: video.videoWidth,
+          videoHeight: video.videoHeight,
+        });
         return;
       }
       videoReadyRafRef.current = requestAnimationFrame(waitForRenderableFrame);
     };
 
     videoReadyRafRef.current = requestAnimationFrame(waitForRenderableFrame);
+
+    window.setTimeout(() => {
+      if (videoReadyRafRef.current !== null) {
+        logDebug('warn', 'video not renderable after timeout', {
+          readyState: video.readyState,
+          networkState: video.networkState,
+          videoWidth: video.videoWidth,
+          videoHeight: video.videoHeight,
+          currentTime: video.currentTime,
+          src: video.currentSrc,
+        });
+      }
+    }, 3000);
   };
 
   const [resolvedWallpaper, setResolvedWallpaper] = useState<string | null>(null);
@@ -1073,11 +1318,12 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(({
         const p = await getAssetPath(wallpaper.replace(/^\//, ''))
         if (mounted) setResolvedWallpaper(p)
       } catch (err) {
+        logDebug('warn', 'wallpaper resolution failed', { wallpaper, error: err });
         if (mounted) setResolvedWallpaper(wallpaper || '/wallpapers/wallpaper1.jpg')
       }
     })()
     return () => { mounted = false }
-  }, [wallpaper])
+  }, [wallpaper, logDebug])
 
   useEffect(() => {
     return () => {
@@ -1235,7 +1481,45 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(({
         onDurationChange={e => {
           onDurationChange(e.currentTarget.duration);
         }}
-        onError={() => onError('Failed to load video')}
+        onError={(e) => {
+          const mediaEl = e.currentTarget;
+          const hasRequestedVideoPath = Boolean(videoPath && videoPath.trim().length > 0);
+          const hasSrc = Boolean(mediaEl.currentSrc);
+          const hasConcreteMediaError = Boolean(mediaEl.error);
+          const isEmptyNetworkState = mediaEl.networkState === HTMLMediaElement.NETWORK_EMPTY;
+          const hadSuccessfulLoad = hasLoadedMetadataRef.current || videoReady;
+
+          if (!hasRequestedVideoPath || !hasSrc || (!hasConcreteMediaError && isEmptyNetworkState)) {
+            logDebug('warn', 'ignoring transient video error event', {
+              error: mediaEl.error,
+              networkState: mediaEl.networkState,
+              readyState: mediaEl.readyState,
+              currentSrc: mediaEl.currentSrc,
+              requestedVideoPath: videoPath,
+            });
+            return;
+          }
+
+          if (hadSuccessfulLoad) {
+            logDebug('warn', 'ignoring post-load video error event', {
+              error: mediaEl.error,
+              networkState: mediaEl.networkState,
+              readyState: mediaEl.readyState,
+              currentSrc: mediaEl.currentSrc,
+              requestedVideoPath: videoPath,
+            });
+            return;
+          }
+
+          logDebug('error', 'video element error event', {
+            error: mediaEl.error,
+            networkState: mediaEl.networkState,
+            readyState: mediaEl.readyState,
+            currentSrc: mediaEl.currentSrc,
+            requestedVideoPath: videoPath,
+          });
+          onError('Failed to load video');
+        }}
       />
     </div>
   );
