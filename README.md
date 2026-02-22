@@ -1,5 +1,5 @@
 # velocity
-opensource screen recording. built to deliver beautiful, smooth videos quickly. a free alternative to screen studio, loom, cap
+opensource screen recording. built to deliver beautiful, smooth videos quickly. a free alternative to screen studio, loom, cap. created with hackathon, startup, product demos in mind.
 
 <img src="https://github.com/user-attachments/assets/477f39a8-1f50-43c6-b24b-47e8f42045ad" width="700" alt="demo recording">
 
