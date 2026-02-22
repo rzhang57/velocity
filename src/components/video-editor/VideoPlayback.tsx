@@ -169,6 +169,7 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(({
   const hasLoadedMetadataRef = useRef(false);
   const paddingRef = useRef(padding);
   const borderRadiusRef = useRef(borderRadius);
+  const previewScaleRef = useRef(previewScale);
   const resizeStateRef = useRef<{
     direction: 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
     startX: number;
@@ -550,7 +551,8 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(({
   useEffect(() => {
     paddingRef.current = padding;
     borderRadiusRef.current = borderRadius;
-  }, [padding, borderRadius]);
+    previewScaleRef.current = previewScale;
+  }, [padding, borderRadius, previewScale]);
 
   useEffect(() => {
     logDebug('log', 'playback inputs updated', {
@@ -732,10 +734,11 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(({
       try {
         app = new Application();
 
-        const resolution = Math.max(0.25, (window.devicePixelRatio || 1) * previewScale);
+        const initialPreviewScale = previewScaleRef.current;
+        const resolution = Math.max(0.25, (window.devicePixelRatio || 1) * initialPreviewScale);
         logDebug('log', 'initializing pixi app', {
           containerSize: { width: container.clientWidth, height: container.clientHeight },
-          previewScale,
+          previewScale: initialPreviewScale,
           devicePixelRatio: window.devicePixelRatio || 1,
           resolution,
         });
@@ -764,7 +767,7 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(({
           logDebug('error', 'webgl context lost', {
             padding: paddingRef.current,
             borderRadius: borderRadiusRef.current,
-            previewScale,
+            previewScale: previewScaleRef.current,
             devicePixelRatio: window.devicePixelRatio || 1,
           });
         };
@@ -824,6 +827,31 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(({
       customCursorGraphicsRef.current = null;
       cursorEraserGraphicsRef.current = null;
     };
+  }, [logDebug]);
+
+  useEffect(() => {
+    const app = appRef.current;
+    const container = containerRef.current;
+    if (!app || !container) return;
+
+    const nextResolution = Math.max(0.25, (window.devicePixelRatio || 1) * previewScale);
+    const currentResolution = app.renderer.resolution;
+    if (Math.abs(currentResolution - nextResolution) < 0.001) return;
+
+    try {
+      app.renderer.resolution = nextResolution;
+      app.renderer.resize(container.clientWidth, container.clientHeight);
+      app.canvas.style.width = '100%';
+      app.canvas.style.height = '100%';
+      layoutVideoContentRef.current?.();
+      logDebug('log', 'updated preview resolution in place', {
+        previousResolution: currentResolution,
+        nextResolution,
+        previewScale,
+      });
+    } catch (error) {
+      logDebug('error', 'failed to update preview resolution in place', error);
+    }
   }, [previewScale, logDebug]);
 
   useEffect(() => {
