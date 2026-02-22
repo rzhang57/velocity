@@ -61,7 +61,6 @@ interface VideoPlaybackProps {
   onAnnotationPositionChange?: (id: string, position: { x: number; y: number }) => void;
   onAnnotationSizeChange?: (id: string, size: { width: number; height: number }) => void;
   onSourceMetadata?: (metadata: { width: number; height: number; aspectRatio: number }) => void;
-  debugDiagnostics?: boolean;
 }
 
 export interface VideoPlaybackRef {
@@ -112,24 +111,12 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(({
   onAnnotationPositionChange,
   onAnnotationSizeChange,
   onSourceMetadata,
-  debugDiagnostics = false,
 }, ref) => {
-  const debugPrefix = "[video-playback-debug]";
-  const logDebug = useCallback((level: 'log' | 'warn' | 'error', message: string, payload?: unknown) => {
-    if (!debugDiagnostics) return;
-    const logFn = level === 'log' ? console.log : level === 'warn' ? console.warn : console.error;
-    if (payload !== undefined) {
-      logFn(`${debugPrefix} ${message}`, payload);
-    } else {
-      logFn(`${debugPrefix} ${message}`);
-    }
-    window.electronAPI?.logRendererDiagnostic?.({
-      level,
-      scope: 'video-playback',
-      message,
-      data: payload,
-    });
-  }, [debugDiagnostics]);
+  const logDebug = useCallback((_level: 'log' | 'warn' | 'error', _message: string, _payload?: unknown) => {
+    void _level;
+    void _message;
+    void _payload;
+  }, []);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const cameraVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -563,29 +550,6 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(({
       videoReady,
     });
   }, [padding, borderRadius, cropRegion, pixiReady, videoReady, logDebug]);
-
-  useEffect(() => {
-    if (!debugDiagnostics) return;
-    const id = window.setTimeout(() => {
-      const app = appRef.current;
-      const container = containerRef.current;
-      const canvas = app?.canvas as HTMLCanvasElement | undefined;
-      const rect = container?.getBoundingClientRect();
-      logDebug('warn', 'post-padding state snapshot', {
-        padding,
-        pixiReady,
-        videoReady,
-        hasApp: Boolean(app),
-        hasCanvas: Boolean(canvas),
-        canvasConnected: Boolean(canvas?.isConnected),
-        canvasClientSize: canvas ? { width: canvas.clientWidth, height: canvas.clientHeight } : null,
-        containerClientSize: container ? { width: container.clientWidth, height: container.clientHeight } : null,
-        containerRect: rect ? { width: rect.width, height: rect.height } : null,
-        rendererSize: app ? { width: app.renderer.width, height: app.renderer.height } : null,
-      });
-    }, 120);
-    return () => window.clearTimeout(id);
-  }, [padding, pixiReady, videoReady, debugDiagnostics, logDebug]);
 
   useEffect(() => {
     if (!pixiReady || !videoReady) return;

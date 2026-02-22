@@ -510,24 +510,6 @@ export function registerIpcHandlers(
     return selectedSource
   })
 
-  ipcMain.on('renderer-diagnostic-log', (event, payload: {
-    level?: 'log' | 'warn' | 'error'
-    scope?: string
-    message?: string
-    data?: unknown
-  }) => {
-    const level = payload?.level === 'warn' || payload?.level === 'error' ? payload.level : 'log'
-    const scope = typeof payload?.scope === 'string' ? payload.scope : 'renderer'
-    const message = typeof payload?.message === 'string' ? payload.message : 'diagnostic'
-    const url = event.sender.getURL()
-    const logger = level === 'error' ? console.error : level === 'warn' ? console.warn : console.log
-    if (payload?.data !== undefined) {
-      logger(`[renderer-diagnostic][${scope}] ${message}`, { url, data: payload.data })
-      return
-    }
-    logger(`[renderer-diagnostic][${scope}] ${message}`, { url })
-  })
-
   ipcMain.handle('start-input-tracking', (_, payload: {
     sessionId: string
     startedAtMs: number
