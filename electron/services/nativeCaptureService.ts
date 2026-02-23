@@ -386,9 +386,9 @@ function resolveSidecarExecutablePath(): string | null {
         path.join(process.resourcesPath, "native-capture", fileName),
       ]
     : [
-        path.join(app.getAppPath(), "native-capture-sidecar", "bin", process.platform, fileName),
-        path.join(app.getAppPath(), "native-capture-sidecar", "target", "debug", fileName),
         path.join(app.getAppPath(), "native-capture-sidecar", "target", "release", fileName),
+        path.join(app.getAppPath(), "native-capture-sidecar", "target", "debug", fileName),
+        path.join(app.getAppPath(), "native-capture-sidecar", "bin", process.platform, fileName),
       ];
 
   for (const candidate of candidates) {

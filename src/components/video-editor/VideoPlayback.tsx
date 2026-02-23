@@ -129,7 +129,6 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(({
   const [pixiReady, setPixiReady] = useState(false);
   const [videoReady, setVideoReady] = useState(false);
   const [cameraDuration, setCameraDuration] = useState(0);
-  const [sourceAspectRatioCss, setSourceAspectRatioCss] = useState<string | null>(null);
   const overlayRef = useRef<HTMLDivElement | null>(null);
   const focusIndicatorRef = useRef<HTMLDivElement | null>(null);
   const currentTimeRef = useRef(0);
@@ -1221,7 +1220,6 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(({
     });
     if (video.videoWidth > 0 && video.videoHeight > 0) {
       const sourceAspectRatio = video.videoWidth / video.videoHeight;
-      setSourceAspectRatioCss(`${video.videoWidth} / ${video.videoHeight}`);
       onSourceMetadata?.({
         width: video.videoWidth,
         height: video.videoHeight,
@@ -1343,7 +1341,7 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(({
     !isCameraHidden;
 
   return (
-    <div className="relative rounded-sm overflow-hidden" style={{ width: '100%', aspectRatio: sourceAspectRatioCss || formatAspectRatioForCSS(aspectRatio) }}>
+    <div className="relative rounded-sm overflow-hidden" style={{ width: '100%', aspectRatio: formatAspectRatioForCSS(aspectRatio) }}>
       {/* Background layer - always render as DOM element with blur */}
       <div
         className="absolute inset-0 bg-cover bg-center"

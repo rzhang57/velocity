@@ -141,7 +141,10 @@ function normalizeWindowTelemetryForBounds(
   telemetry: InputTelemetryFileV1,
   sourceBounds: RectBounds
 ): InputTelemetryFileV1 {
-  const physicalToDip = resolveDisplayPhysicalMapper(telemetry.sourceDisplayId)
+  const shouldConvertPhysicalToDip = process.platform === 'darwin'
+  const physicalToDip = shouldConvertPhysicalToDip
+    ? resolveDisplayPhysicalMapper(telemetry.sourceDisplayId)
+    : undefined
   const normalizedEvents = telemetry.events.map((event) => {
     if (
       (event.type !== 'mouseDown' && event.type !== 'mouseUp' && event.type !== 'mouseMoveSampled' && event.type !== 'wheel')

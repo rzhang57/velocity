@@ -66,6 +66,9 @@ pub struct EncoderOptionsPayload {
 pub struct CaptureSource {
     #[serde(rename = "type")]
     pub source_type: String,
+    pub id: Option<String>,
+    #[serde(rename = "displayId")]
+    pub display_id: Option<String>,
     pub name: Option<String>,
 }
 

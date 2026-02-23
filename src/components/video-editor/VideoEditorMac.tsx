@@ -32,7 +32,7 @@ import {
   type CameraHiddenRegion,
 } from "./types";
 import { VideoExporter, GifExporter, type ExportProgress, type ExportSettings, type ExportFormat, type GifFrameRate, type GifSizePreset, type Mp4FrameRate, type Mp4ResolutionPreset, GIF_SIZE_PRESETS, calculateOutputDimensions } from "@/lib/exporter";
-import { type AspectRatio, getAspectRatioValue } from "@/utils/aspectRatioUtils";
+import { type AspectRatio } from "@/utils/aspectRatioUtils";
 import { getAssetPath } from "@/lib/assetPath";
 import type { RecordingSession } from "@/types/recordingSession";
 import type { AutoZoomIntensity, InputTelemetryFileV1 } from "@/types/inputTelemetry";
@@ -53,6 +53,8 @@ const PREVIEW_QUALITY_SCALE: Record<'full' | 'half' | 'quarter', number> = {
   quarter: 0.25,
 };
 const EXPORT_DIRECTORY_STORAGE_KEY = "openscreen.exportDirectory";
+const FORCED_ASPECT_RATIO: AspectRatio = '16:9';
+const FORCED_ASPECT_RATIO_VALUE = 16 / 9;
 
 export default function VideoEditor() {
   const [videoPath, setVideoPath] = useState<string | null>(null);
@@ -90,8 +92,7 @@ export default function VideoEditor() {
   const [autoZoomIntensity, setAutoZoomIntensity] = useState<AutoZoomIntensity>("balanced");
   const [showNewRecordingDialog, setShowNewRecordingDialog] = useState(false);
   const [isStartingNewRecording, setIsStartingNewRecording] = useState(false);
-  const [aspectRatio, setAspectRatio] = useState<AspectRatio>('16:9');
-  const [sourceAspectRatio, setSourceAspectRatio] = useState<number>(16 / 9);
+  const aspectRatio = FORCED_ASPECT_RATIO;
   const [previewQuality, setPreviewQuality] = useState<'full' | 'half' | 'quarter'>('full');
   const [mp4FrameRate, setMp4FrameRate] = useState<Mp4FrameRate>(60);
   const [mp4Resolution, setMp4Resolution] = useState<Mp4ResolutionPreset>(1080);
@@ -790,7 +791,7 @@ export default function VideoEditor() {
         videoPlaybackRef.current?.pause();
       }
 
-      const aspectRatioValue = getAspectRatioValue(aspectRatio);
+      const aspectRatioValue = FORCED_ASPECT_RATIO_VALUE;
 
       // Get preview CONTAINER dimensions for scaling
       const playbackRef = videoPlaybackRef.current;
@@ -962,7 +963,7 @@ export default function VideoEditor() {
       setShowExportDialog(false);
       setExportProgress(null);
     }
-  }, [videoPath, cameraVideoPath, recordingSession, cameraHiddenRegions, wallpaper, zoomRegions, trimRegions, shadowIntensity, showBlur, motionBlurEnabled, cursorTrailEnabled, customCursorSize, customCursorTelemetry, borderRadius, safePadding, cropRegion, annotationRegions, isPlaying, aspectRatio, mp4FrameRate, mp4Resolution, exportDirectory]);
+  }, [videoPath, cameraVideoPath, recordingSession, cameraHiddenRegions, wallpaper, zoomRegions, trimRegions, shadowIntensity, showBlur, motionBlurEnabled, cursorTrailEnabled, customCursorSize, customCursorTelemetry, borderRadius, safePadding, cropRegion, annotationRegions, isPlaying, mp4FrameRate, mp4Resolution, exportDirectory]);
 
   const handleOpenExportDialog = useCallback(() => {
     if (!videoPath) {
@@ -977,9 +978,9 @@ export default function VideoEditor() {
     }
 
     // Build export settings from current state
-    const sourceWidth = video.videoWidth || 1920;
     const sourceHeight = video.videoHeight || 1080;
-    const gifDimensions = calculateOutputDimensions(sourceWidth, sourceHeight, gifSizePreset, GIF_SIZE_PRESETS);
+    const forcedSourceWidth = Math.round(sourceHeight * FORCED_ASPECT_RATIO_VALUE);
+    const gifDimensions = calculateOutputDimensions(forcedSourceWidth, sourceHeight, gifSizePreset, GIF_SIZE_PRESETS);
 
     const settings: ExportSettings = {
       format: exportFormat,
@@ -1140,7 +1141,7 @@ export default function VideoEditor() {
               <div className="w-full h-full flex flex-col items-center justify-center bg-black/40 rounded-2xl border border-white/5 shadow-2xl overflow-hidden">
                 {/* Video preview */}
                 <div className="w-full flex justify-center items-center" style={{ flex: '1 1 auto', margin: '6px 0 0' }}>
-                  <div className="relative" style={{ width: 'auto', height: '100%', aspectRatio: sourceAspectRatio, maxWidth: '100%', margin: '0 auto', boxSizing: 'border-box' }}>
+                  <div className="relative" style={{ width: 'auto', height: '100%', aspectRatio: FORCED_ASPECT_RATIO_VALUE, maxWidth: '100%', margin: '0 auto', boxSizing: 'border-box' }}>
                     <VideoPlayback
                       aspectRatio={aspectRatio}
                       previewScale={PREVIEW_QUALITY_SCALE[previewQuality]}
@@ -1179,11 +1180,7 @@ export default function VideoEditor() {
                       onSelectAnnotation={handleSelectAnnotation}
                       onAnnotationPositionChange={handleAnnotationPositionChange}
                       onAnnotationSizeChange={handleAnnotationSizeChange}
-                      onSourceMetadata={({ aspectRatio }) => {
-                        if (Number.isFinite(aspectRatio) && aspectRatio > 0) {
-                          setSourceAspectRatio(aspectRatio);
-                        }
-                      }}
+                      onSourceMetadata={() => {}}
                     />
                   </div>
                 </div>
@@ -1239,7 +1236,7 @@ export default function VideoEditor() {
               selectedCameraHiddenId={recordingSession?.cameraCaptured ? selectedCameraHiddenId : null}
               onSelectCameraHidden={recordingSession?.cameraCaptured ? handleSelectCameraHidden : undefined}
               aspectRatio={aspectRatio}
-              onAspectRatioChange={setAspectRatio}
+              onAspectRatioChange={() => {}}
             />
               </div>
             </Panel>
@@ -1293,7 +1290,7 @@ export default function VideoEditor() {
           onChooseExportDirectory={handleChooseExportDirectory}
           onOpenExportDirectory={handleOpenExportDirectory}
           gifOutputDimensions={calculateOutputDimensions(
-            videoPlaybackRef.current?.video?.videoWidth || 1920,
+            Math.round((videoPlaybackRef.current?.video?.videoHeight || 1080) * FORCED_ASPECT_RATIO_VALUE),
             videoPlaybackRef.current?.video?.videoHeight || 1080,
             gifSizePreset,
             GIF_SIZE_PRESETS

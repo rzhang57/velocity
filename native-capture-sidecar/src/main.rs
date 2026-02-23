@@ -5,6 +5,8 @@ mod capture;
 mod ffmpeg;
 mod protocol;
 mod system;
+#[cfg(target_os = "windows")]
+mod wgc;
 
 use capture::{handle_start, handle_stop};
 use ffmpeg::handle_get_encoder_options;

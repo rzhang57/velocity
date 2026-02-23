@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, statSync, copyFileSync, chmodSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, statSync, copyFileSync, chmodSync, rmSync, readdirSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { createRequire } from "node:module";
@@ -6,6 +6,7 @@ import { createRequire } from "node:module";
 const root = process.cwd();
 const sidecarDir = path.join(root, "native-capture-sidecar");
 const strictMode = process.argv.includes("--strict");
+const forceBuild = process.argv.includes("--force");
 const platform = process.platform;
 
 if (platform !== "win32" && platform !== "darwin") {
@@ -19,7 +20,9 @@ const binDir = path.join(sidecarDir, "bin", platform);
 const binSidecar = path.join(binDir, sidecarFileName);
 const binFfmpeg = path.join(binDir, ffmpegFileName);
 
-const rustSource = path.join(sidecarDir, "src", "main.rs");
+const rustSourceDir = path.join(sidecarDir, "src");
+const rustManifest = path.join(sidecarDir, "Cargo.toml");
+const rustLock = path.join(sidecarDir, "Cargo.lock");
 const macSwiftSource = path.join(sidecarDir, "macos", "NativeCaptureSidecar.swift");
 const swiftModuleCache = path.join(root, ".cache", "swift-module-cache");
 
@@ -28,7 +31,7 @@ mkdirSync(binDir, { recursive: true });
 mkdirSync(swiftModuleCache, { recursive: true });
 
 if (platform === "win32") {
-  if (shouldBuildSidecar(targetSidecar, rustSource)) {
+  if (shouldBuildSidecar(targetSidecar, [rustSourceDir, rustManifest, rustLock])) {
     const cargo = spawnSync("cargo", ["build", "--manifest-path", path.join("native-capture-sidecar", "Cargo.toml"), "--release"], {
       cwd: root,
       stdio: "inherit",
@@ -46,7 +49,7 @@ if (platform === "win32") {
     }
   }
 } else {
-  if (shouldBuildSidecar(targetSidecar, macSwiftSource)) {
+  if (shouldBuildSidecar(targetSidecar, [macSwiftSource])) {
     const swift = spawnSync("xcrun", [
       "swiftc",
       macSwiftSource,
@@ -139,16 +142,36 @@ if (platform === "win32") {
   }
 }
 
-function shouldBuildSidecar(targetExe, sourceFile) {
-  if (!existsSync(sourceFile)) return false;
+function shouldBuildSidecar(targetExe, sourceEntries) {
+  if (forceBuild) return true;
+  const entries = Array.isArray(sourceEntries) ? sourceEntries : [sourceEntries];
+  if (!entries.some((entry) => existsSync(entry))) return false;
   if (!existsSync(targetExe)) return true;
   try {
-    const sourceTime = statSync(sourceFile).mtimeMs;
+    const sourceTime = getLatestMtime(entries);
     const targetTime = statSync(targetExe).mtimeMs;
     return sourceTime > targetTime;
   } catch {
     return true;
   }
+}
+
+function getLatestMtime(entries) {
+  let latest = 0;
+  for (const entry of entries) {
+    if (!existsSync(entry)) continue;
+    const stats = statSync(entry);
+    if (stats.isDirectory()) {
+      for (const child of readdirSync(entry, { withFileTypes: true })) {
+        const childPath = path.join(entry, child.name);
+        const childMtime = getLatestMtime([childPath]);
+        if (childMtime > latest) latest = childMtime;
+      }
+    } else if (stats.mtimeMs > latest) {
+      latest = stats.mtimeMs;
+    }
+  }
+  return latest;
 }
 
 function ensureExecutableIfNeeded(filePath, currentPlatform) {

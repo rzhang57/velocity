@@ -2,7 +2,7 @@ use std::process::{Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crate::capture::ActiveCapture;
+use crate::capture::{ActiveCapture, CaptureBackend};
 use crate::ffmpeg::resolve_ffmpeg_path;
 use crate::protocol::StartCapturePayload;
 
@@ -74,7 +74,8 @@ pub fn start_capture(start_payload: StartCapturePayload) -> Result<ActiveCapture
         started_at: Instant::now(),
         platform: "darwin".to_string(),
         restore_cursor_on_stop: should_hide_native_cursor,
-        child,
+        source_bounds: None,
+        backend: CaptureBackend::Ffmpeg(child),
     })
 }
 

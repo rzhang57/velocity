@@ -1,10 +1,12 @@
+use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 
-use crate::capture::ActiveCapture;
+use crate::capture::{ActiveCapture, CaptureBackend, SourceBounds};
 use crate::ffmpeg::resolve_ffmpeg_path;
 use crate::protocol::StartCapturePayload;
 
@@ -21,6 +23,63 @@ pub fn start_capture(start_payload: StartCapturePayload) -> Result<ActiveCapture
     }
     let ffmpeg_exe = ffmpeg_exe.unwrap_or_else(|| "ffmpeg.exe".to_string());
 
+    if start_payload.source.source_type == "window" {
+        let hwnd = start_payload
+            .source
+            .id
+            .as_deref()
+            .and_then(crate::wgc::hwnd_from_source_id)
+            .ok_or_else(|| "window capture requires source.id in the form window:<hwnd>:...".to_string())?;
+        let source_bounds = crate::wgc::source_bounds_from_hwnd(hwnd).map(|bounds| SourceBounds {
+            x: bounds.x,
+            y: bounds.y,
+            width: bounds.width,
+            height: bounds.height,
+        });
+        eprintln!(
+            "[native-capture][win][wgc] start requested source_id={:?} source_name={:?} hwnd=0x{:x} bounds={:?} fps={} encoder={} bitrate={} cursor_mode={}",
+            start_payload.source.id,
+            start_payload.source.name,
+            hwnd as usize,
+            source_bounds.as_ref().map(|b| format!("{}x{}@{},{}", b.width, b.height, b.x, b.y)),
+            start_payload.video.fps,
+            start_payload.video.encoder,
+            start_payload.video.bitrate,
+            start_payload.cursor.mode
+        );
+        let encoder_args = build_encoder_args(&start_payload.video.encoder);
+        let hide_cursor = start_payload.cursor.mode == "hide";
+        let wgc_capture = crate::wgc::start(
+            hwnd,
+            start_payload.video.fps,
+            &start_payload.video.encoder,
+            start_payload.video.bitrate,
+            &ffmpeg_exe,
+            &start_payload.output_path,
+            hide_cursor,
+            encoder_args,
+        )?;
+        eprintln!(
+            "[native-capture][win][wgc] start succeeded output_path={} capture_size={}x{}",
+            start_payload.output_path,
+            wgc_capture.width,
+            wgc_capture.height
+        );
+
+        return Ok(ActiveCapture {
+            session_id: start_payload.session_id,
+            output_path: start_payload.output_path,
+            width: wgc_capture.width,
+            height: wgc_capture.height,
+            fps: start_payload.video.fps,
+            started_at: Instant::now(),
+            platform: "win32".to_string(),
+            restore_cursor_on_stop: false,
+            source_bounds,
+            backend: CaptureBackend::Wgc(wgc_capture),
+        });
+    }
+
     let output_path = start_payload.output_path.clone();
     let mut command = build_ffmpeg_command(&ffmpeg_exe, &start_payload)?;
 
@@ -28,23 +87,65 @@ pub fn start_capture(start_payload: StartCapturePayload) -> Result<ActiveCapture
         .arg(output_path.as_str())
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
-        .stderr(Stdio::null());
+        .stderr(Stdio::piped());
 
     let child = command
         .spawn()
         .map_err(|err| format!("failed to spawn ffmpeg: {err}"))?;
     let mut child = child;
+    let stderr_lines: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    if let Some(stderr) = child.stderr.take() {
+        let stderr_lines_for_thread = Arc::clone(&stderr_lines);
+        thread::spawn(move || {
+            let reader = BufReader::new(stderr);
+            for line in reader.lines().map_while(Result::ok) {
+                let trimmed = line.trim();
+                if trimmed.is_empty() {
+                    continue;
+                }
+                eprintln!("[native-capture][win][ffmpeg][stderr] {}", trimmed);
+                if let Ok(mut guard) = stderr_lines_for_thread.lock() {
+                    if guard.len() >= 30 {
+                        let _ = guard.remove(0);
+                    }
+                    guard.push(trimmed.to_string());
+                }
+            }
+        });
+    }
 
     thread::sleep(Duration::from_millis(350));
     match child.try_wait() {
         Ok(Some(status)) => {
+            let stderr_excerpt = stderr_lines
+                .lock()
+                .ok()
+                .map(|lines| lines.join(" | "))
+                .unwrap_or_default();
             return Err(format!(
-                "ffmpeg exited immediately during startup (status={status}). Try h264_libx264."
+                "ffmpeg exited immediately during startup (status={status}). Try h264_libx264.{}",
+                if stderr_excerpt.is_empty() {
+                    String::new()
+                } else {
+                    format!(" stderr={stderr_excerpt}")
+                }
             ));
         }
         Ok(None) => {}
         Err(err) => {
-            return Err(format!("failed to verify ffmpeg startup: {err}"));
+            let stderr_excerpt = stderr_lines
+                .lock()
+                .ok()
+                .map(|lines| lines.join(" | "))
+                .unwrap_or_default();
+            return Err(format!(
+                "failed to verify ffmpeg startup: {err}.{}",
+                if stderr_excerpt.is_empty() {
+                    String::new()
+                } else {
+                    format!(" stderr={stderr_excerpt}")
+                }
+            ));
         }
     }
 
@@ -57,7 +158,8 @@ pub fn start_capture(start_payload: StartCapturePayload) -> Result<ActiveCapture
         started_at: Instant::now(),
         platform: "win32".to_string(),
         restore_cursor_on_stop: false,
-        child,
+        source_bounds: None,
+        backend: CaptureBackend::Ffmpeg(child),
     })
 }
 
@@ -86,6 +188,8 @@ fn build_ffmpeg_command(ffmpeg_exe: &str, payload: &StartCapturePayload) -> Resu
 
     command
         .arg("-y")
+        .arg("-loglevel")
+        .arg("warning")
         .arg("-f")
         .arg("gdigrab")
         .arg("-thread_queue_size")
@@ -117,11 +221,7 @@ fn build_ffmpeg_command(ffmpeg_exe: &str, payload: &StartCapturePayload) -> Resu
     if payload.source.source_type == "screen" {
         command.arg("-i").arg("desktop");
     } else if payload.source.source_type == "window" {
-        let window_name = payload.source.name.clone().unwrap_or_default();
-        if window_name.trim().is_empty() {
-            return Err("window capture requires source.name in payload".to_string());
-        }
-        command.arg("-i").arg(format!("title={window_name}"));
+        return Err("window capture is handled by WGC path before FFmpeg command build".to_string());
     } else {
         return Err("unsupported source type".to_string());
     }
@@ -155,4 +255,36 @@ fn build_ffmpeg_command(ffmpeg_exe: &str, payload: &StartCapturePayload) -> Resu
     }
 
     Ok(command)
+}
+
+fn build_encoder_args(encoder: &str) -> Vec<String> {
+    match encoder {
+        "h264_nvenc" => vec![
+            "-preset".to_string(),
+            "p2".to_string(),
+            "-tune".to_string(),
+            "ll".to_string(),
+            "-rc".to_string(),
+            "vbr".to_string(),
+            "-cq".to_string(),
+            "27".to_string(),
+        ],
+        "hevc_nvenc" => vec![
+            "-preset".to_string(),
+            "p2".to_string(),
+            "-tune".to_string(),
+            "ll".to_string(),
+            "-rc".to_string(),
+            "vbr".to_string(),
+            "-cq".to_string(),
+            "29".to_string(),
+        ],
+        "h264_amf" => Vec::new(),
+        _ => vec![
+            "-preset".to_string(),
+            "ultrafast".to_string(),
+            "-tune".to_string(),
+            "zerolatency".to_string(),
+        ],
+    }
 }
