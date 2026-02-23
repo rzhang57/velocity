@@ -7,13 +7,13 @@ import VideoEditor from "./components/video-editor/VideoEditor";
 import { loadAllCustomFonts } from "./lib/customFonts";
 
 export default function App() {
-  const [windowType, setWindowType] = useState('');
+  const [windowType] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('windowType') || '';
+  });
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const type = params.get('windowType') || '';
-    setWindowType(type);
-    if (type === 'hud-overlay' || type === 'source-selector' || type === 'camera-preview' || type === 'hud-popover') {
+    if (windowType === 'hud-overlay' || windowType === 'source-selector' || windowType === 'camera-preview' || windowType === 'hud-popover') {
       document.body.style.background = 'transparent';
       document.documentElement.style.background = 'transparent';
       document.getElementById('root')?.style.setProperty('background', 'transparent');
@@ -26,7 +26,7 @@ export default function App() {
     loadAllCustomFonts().catch((error) => {
       console.error('Failed to load custom fonts:', error);
     });
-  }, []);
+  }, [windowType]);
 
   switch (windowType) {
     case 'hud-overlay':
@@ -39,11 +39,7 @@ export default function App() {
       return <HudPopoverWindow />;
     case 'editor':
       return <VideoEditor />;
-      default:
-      return (
-        <div className="w-full h-full bg-background text-foreground">
-          <h1>Openscreen</h1>
-        </div>
-      );
+    default:
+      return null;
   }
 }

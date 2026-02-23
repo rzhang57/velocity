@@ -53,6 +53,12 @@ export type NativeCaptureSessionResult = {
   height?: number;
   fpsActual?: number;
   bytes?: number;
+  sourceBounds?: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
 };
 
 export type NativeCaptureStatusResult = {

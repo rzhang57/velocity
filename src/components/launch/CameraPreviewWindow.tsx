@@ -11,6 +11,8 @@ export function CameraPreviewWindow() {
 
     const start = async () => {
       try {
+        const platform = await window.electronAPI.getPlatform().catch(() => "");
+        const isMac = platform === "darwin";
         const stream = await navigator.mediaDevices.getUserMedia({
           audio: false,
           video: {
@@ -23,7 +25,13 @@ export function CameraPreviewWindow() {
         streamRef.current = stream;
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
-          await videoRef.current.play();
+          if (isMac) {
+            void videoRef.current.play().catch((playError) => {
+              console.warn("Camera preview autoplay was blocked on macOS:", playError);
+            });
+          } else {
+            await videoRef.current.play();
+          }
         }
       } catch (err) {
         setError("Unable to access camera preview");
@@ -56,6 +64,7 @@ export function CameraPreviewWindow() {
           className="w-full h-full object-cover opacity-90 rounded-xl border border-white/20"
           muted
           playsInline
+          autoPlay
         />
       )}
     </div>

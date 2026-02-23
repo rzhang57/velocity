@@ -10,6 +10,7 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+dist-electron
 *.local
 
 # Editor directories and files
@@ -28,5 +29,8 @@ release/**
 native-capture-sidecar/bin/win32/*.exe
 native-capture-sidecar/bin/darwin/native-capture-sidecar
 native-capture-sidecar/target/
+native-capture-sidecar/bin/darwin/ffmpeg
 !native-capture-sidecar/bin/win32/.gitkeep
 !native-capture-sidecar/bin/darwin/.gitkeep
+
+.cache

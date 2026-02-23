@@ -101,11 +101,19 @@ pub struct StopCapturePayload {
 }
 
 pub fn init_response(id: impl Into<String>) -> Response {
+    let backend = if cfg!(target_os = "windows") {
+        "ffmpeg-gdigrab"
+    } else if cfg!(target_os = "macos") {
+        "ffmpeg-avfoundation"
+    } else {
+        "ffmpeg-unknown"
+    };
+
     Response::ok(
         id,
         json!({
             "version": "0.2.0",
-            "backend": "ffmpeg-gdigrab",
+            "backend": backend,
             "status": "ready"
         }),
     )

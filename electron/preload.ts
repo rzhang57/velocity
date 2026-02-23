@@ -48,6 +48,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getHudSettings: () => {
     return ipcRenderer.invoke('get-hud-settings')
   },
+  requestMediaAccess: (kind: 'camera' | 'microphone') => {
+    return ipcRenderer.invoke('request-media-access', kind)
+  },
+  requestStartupPermissions: () => {
+    return ipcRenderer.invoke('request-startup-permissions')
+  },
   setHudEncoderOptions: (options: Array<{ encoder: 'h264_libx264' | 'h264_nvenc' | 'hevc_nvenc' | 'h264_amf'; label: string; hardware: 'cpu' | 'nvidia' | 'amd' }>) => {
     return ipcRenderer.invoke('set-hud-encoder-options', options)
   },

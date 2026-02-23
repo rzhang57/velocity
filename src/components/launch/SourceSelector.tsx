@@ -8,6 +8,7 @@ import styles from "./SourceSelector.module.css";
 interface DesktopSource {
   id: string;
   name: string;
+  label: string;
   thumbnail: string | null;
   display_id: string;
   appIcon: string | null;
@@ -30,7 +31,8 @@ export function SourceSelector() {
         setSources(
           rawSources.map(source => ({
             id: source.id,
-            name:
+            name: source.name,
+            label:
               source.id.startsWith('window:') && source.name.includes(' — ')
                 ? source.name.split(' — ')[1] || source.name
                 : source.name,
@@ -100,7 +102,7 @@ export function SourceSelector() {
                           </div>
                         )}
                       </div>
-                      <div className={styles.name + " truncate"}>{source.name}</div>
+                      <div className={styles.name + " truncate"}>{source.label}</div>
                     </div>
                   </Card>
                 ))}
@@ -138,7 +140,7 @@ export function SourceSelector() {
                             className={styles.icon + " flex-shrink-0"}
                           />
                         )}
-                        <div className={styles.name + " truncate"}>{source.name}</div>
+                        <div className={styles.name + " truncate"}>{source.label}</div>
                       </div>
                     </div>
                   </Card>

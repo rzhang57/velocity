@@ -1,5 +1,5 @@
 import { createRequire } from "node:module";
-import { screen } from "electron";
+import { screen, systemPreferences } from "electron";
 import type {
   CursorVisualType,
   InputSourceBounds,
@@ -38,6 +38,18 @@ class NativeHookProvider {
   private handlers: Array<{ name: string; cb: (event: unknown) => void }> = [];
 
   start(callbacks: HookCallbacks): { success: boolean; message?: string } {
+    if (process.platform === "darwin") {
+      const trusted = systemPreferences.isTrustedAccessibilityClient(false);
+      if (!trusted) {
+        // Best effort prompt to open Accessibility settings for the app.
+        systemPreferences.isTrustedAccessibilityClient(true);
+        return {
+          success: false,
+          message: "Accessibility permission is required for input telemetry on macOS",
+        };
+      }
+    }
+
     const require = createRequire(import.meta.url);
     let mod: Record<string, unknown>;
     try {
@@ -206,6 +218,8 @@ export class InputTrackingService {
   private lastMoveTs = 0;
   private lastMoveX = -1;
   private lastMoveY = -1;
+  private cursorPollInterval: NodeJS.Timeout | null = null;
+  private lastCursorPollEmitTs = 0;
 
   start(payload: StartInputTrackingPayload, selectedSource?: SelectedSourceLike): { success: boolean; message?: string } {
     this.stop();
@@ -228,6 +242,7 @@ export class InputTrackingService {
     this.lastMoveTs = 0;
     this.lastMoveX = -1;
     this.lastMoveY = -1;
+    this.lastCursorPollEmitTs = 0;
     const startResult = this.provider.start({
       onMouseDown: (event) => {
         this.pushEvent({
@@ -303,10 +318,12 @@ export class InputTrackingService {
       return startResult;
     }
 
+    this.startCursorPolling();
     return startResult;
   }
 
   stop(): InputTelemetryFileV1 | null {
+    this.stopCursorPolling();
     this.provider.stop();
     if (!this.currentSession) {
       return null;
@@ -327,6 +344,10 @@ export class InputTrackingService {
     this.currentSession = null;
     this.events = [];
     this.stats = createEmptyStats();
+    this.lastMoveTs = 0;
+    this.lastMoveX = -1;
+    this.lastMoveY = -1;
+    this.lastCursorPollEmitTs = 0;
 
     return telemetry;
   }
@@ -334,5 +355,60 @@ export class InputTrackingService {
   private pushEvent(event: InputTelemetryEvent) {
     this.events.push(event);
     incrementStats(this.stats, event);
+  }
+
+  private startCursorPolling() {
+    this.stopCursorPolling();
+
+    const minIntervalMs = 33;
+    const minDeltaPx = 1;
+    const keepAliveIntervalMs = 200;
+
+    this.cursorPollInterval = setInterval(() => {
+      const session = this.currentSession;
+      if (!session) return;
+
+      const now = Date.now();
+      const point = screen.getCursorScreenPoint();
+      const maybeFn = (screen as unknown as { dipToScreenPoint?: (p: { x: number; y: number }) => { x: number; y: number } }).dipToScreenPoint;
+      const physicalPoint = typeof maybeFn === "function"
+        ? maybeFn(point)
+        : point;
+
+      const x = Number(physicalPoint.x ?? 0);
+      const y = Number(physicalPoint.y ?? 0);
+      const dx = x - this.lastMoveX;
+      const dy = y - this.lastMoveY;
+      const distanceSq = dx * dx + dy * dy;
+      const elapsedSinceEmit = now - this.lastMoveTs;
+      const elapsedSincePollEmit = now - this.lastCursorPollEmitTs;
+
+      // Emit when cursor moved, or periodically to keep cursor erasing/custom render alive while stationary.
+      if (distanceSq < minDeltaPx * minDeltaPx && elapsedSincePollEmit < keepAliveIntervalMs) {
+        return;
+      }
+      if (elapsedSinceEmit < minIntervalMs && distanceSq < minDeltaPx * minDeltaPx) {
+        return;
+      }
+
+      this.lastMoveTs = now;
+      this.lastMoveX = x;
+      this.lastMoveY = y;
+      this.lastCursorPollEmitTs = now;
+      this.pushEvent({
+        type: "mouseMoveSampled",
+        ts: now,
+        x,
+        y,
+        cursorType: "default",
+      });
+    }, 16);
+  }
+
+  private stopCursorPolling() {
+    if (this.cursorPollInterval) {
+      clearInterval(this.cursorPollInterval);
+      this.cursorPollInterval = null;
+    }
   }
 }

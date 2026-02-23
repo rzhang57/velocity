@@ -1,9 +1,9 @@
-import { ipcMain, desktopCapturer, BrowserWindow, shell, app, dialog, screen, type Rectangle } from 'electron'
+import { ipcMain, desktopCapturer, BrowserWindow, shell, app, dialog, screen, systemPreferences, type Rectangle } from 'electron'
 
 import fs from 'node:fs/promises'
 import fsSync from 'node:fs'
 import path from 'node:path'
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { RECORDINGS_DIR, VITE_DEV_SERVER_URL, RENDERER_DIST } from '../main'
 import { InputTrackingService } from '../services/inputTrackingService'
@@ -42,7 +42,7 @@ type HudSettings = {
 }
 
 const hudSettings: HudSettings = {
-  micEnabled: true,
+  micEnabled: process.platform === 'darwin' ? false : true,
   selectedMicDeviceId: '',
   micProcessingMode: 'cleaned',
   cameraEnabled: false,
@@ -80,6 +80,96 @@ function resolveCaptureRegionForDisplay(displayId?: string): { x: number; y: num
     y: topLeft.y,
     width: Math.max(1, bottomRight.x - topLeft.x),
     height: Math.max(1, bottomRight.y - topLeft.y),
+  }
+}
+
+function toEven(value: number): number {
+  const rounded = Math.round(value)
+  return Math.max(2, rounded - (rounded % 2))
+}
+
+type RectBounds = { x: number; y: number; width: number; height: number }
+
+function toFiniteNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
+
+function toRectBounds(value: unknown): RectBounds | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const candidate = value as { x?: unknown; y?: unknown; width?: unknown; height?: unknown }
+  const x = toFiniteNumber(candidate.x)
+  const y = toFiniteNumber(candidate.y)
+  const width = toFiniteNumber(candidate.width)
+  const height = toFiniteNumber(candidate.height)
+  if (typeof x !== 'number' || typeof y !== 'number' || typeof width !== 'number' || typeof height !== 'number') {
+    return undefined
+  }
+  if (width <= 0 || height <= 0) return undefined
+  return { x, y, width, height }
+}
+
+function resolveDisplayPhysicalMapper(sourceDisplayId?: string): ((point: { x: number; y: number }) => { x: number; y: number }) | undefined {
+  if (!sourceDisplayId) return undefined
+  const displays = screen.getAllDisplays()
+  const targetDisplay = displays.find((display) => String(display.id) === sourceDisplayId)
+  if (!targetDisplay) return undefined
+  const dipToScreenPoint = (screen as unknown as { dipToScreenPoint?: (p: { x: number; y: number }) => { x: number; y: number } }).dipToScreenPoint
+  if (typeof dipToScreenPoint !== 'function') return undefined
+
+  const dipBounds = targetDisplay.bounds
+  const physicalTopLeft = dipToScreenPoint({ x: dipBounds.x, y: dipBounds.y })
+  const physicalBottomRight = dipToScreenPoint({ x: dipBounds.x + dipBounds.width, y: dipBounds.y + dipBounds.height })
+  const physicalWidth = physicalBottomRight.x - physicalTopLeft.x
+  const physicalHeight = physicalBottomRight.y - physicalTopLeft.y
+  if (!Number.isFinite(physicalWidth) || !Number.isFinite(physicalHeight) || Math.abs(physicalWidth) < 1 || Math.abs(physicalHeight) < 1) {
+    return undefined
+  }
+
+  const scaleX = physicalWidth / dipBounds.width
+  const scaleY = physicalHeight / dipBounds.height
+  if (!Number.isFinite(scaleX) || !Number.isFinite(scaleY) || Math.abs(scaleX) < 0.01 || Math.abs(scaleY) < 0.01) {
+    return undefined
+  }
+
+  return (point: { x: number; y: number }) => ({
+    x: dipBounds.x + ((point.x - physicalTopLeft.x) / scaleX),
+    y: dipBounds.y + ((point.y - physicalTopLeft.y) / scaleY),
+  })
+}
+
+function normalizeWindowTelemetryForBounds(
+  telemetry: InputTelemetryFileV1,
+  sourceBounds: RectBounds
+): InputTelemetryFileV1 {
+  const physicalToDip = resolveDisplayPhysicalMapper(telemetry.sourceDisplayId)
+  const normalizedEvents = telemetry.events.map((event) => {
+    if (
+      (event.type !== 'mouseDown' && event.type !== 'mouseUp' && event.type !== 'mouseMoveSampled' && event.type !== 'wheel')
+      || typeof event.x !== 'number'
+      || typeof event.y !== 'number'
+    ) {
+      return event
+    }
+    if (!physicalToDip) {
+      return event
+    }
+    const dipPoint = physicalToDip({ x: event.x, y: event.y })
+    return {
+      ...event,
+      x: dipPoint.x,
+      y: dipPoint.y,
+    }
+  })
+
+  return {
+    ...telemetry,
+    sourceBounds: {
+      x: sourceBounds.x,
+      y: sourceBounds.y,
+      width: sourceBounds.width,
+      height: sourceBounds.height,
+    },
+    events: normalizedEvents,
   }
 }
 
@@ -302,9 +392,19 @@ export function registerIpcHandlers(
       : path.join(app.getAppPath(), 'native-capture-sidecar', 'bin', process.platform, process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg')
   )
 
+  const resolveMuxFfmpegPath = () => {
+    const packaged = resolvePackagedFfmpegPath()
+    if (fsSync.existsSync(packaged)) return packaged
+    if (process.platform !== 'darwin') return null
+    const probe = spawnSync('which', ['ffmpeg'], { encoding: 'utf8' })
+    if (probe.status !== 0) return null
+    const candidate = probe.stdout.trim()
+    return candidate && fsSync.existsSync(candidate) ? candidate : null
+  }
+
   const muxAudioIntoVideo = async (videoPath: string, audioPath: string, audioOffsetMs = 0): Promise<{ success: boolean; outputPath?: string; message?: string }> => {
-    const ffmpegPath = resolvePackagedFfmpegPath()
-    if (!fsSync.existsSync(ffmpegPath)) {
+    const ffmpegPath = resolveMuxFfmpegPath()
+    if (!ffmpegPath) {
       return { success: false, message: 'ffmpeg executable not found for native audio muxing' }
     }
 
@@ -545,6 +645,56 @@ export function registerIpcHandlers(
     return { success: true, settings: hudSettings }
   })
 
+  ipcMain.handle('request-media-access', async (_, kind: 'camera' | 'microphone') => {
+    if (process.platform !== 'darwin') {
+      return { success: true, granted: true }
+    }
+    if (kind !== 'camera' && kind !== 'microphone') {
+      return { success: false, granted: false, message: 'Unsupported media access type' }
+    }
+    try {
+      const status = systemPreferences.getMediaAccessStatus(kind)
+      if (status === 'granted') {
+        return { success: true, granted: true }
+      }
+      const granted = await systemPreferences.askForMediaAccess(kind)
+      if (!granted) {
+        const pane = kind === 'camera' ? 'Privacy_Camera' : 'Privacy_Microphone'
+        shell.openExternal(`x-apple.systempreferences:com.apple.preference.security?${pane}`).catch(() => {})
+      }
+      return { success: true, granted }
+    } catch (error) {
+      return { success: false, granted: false, message: String(error) }
+    }
+  })
+
+  ipcMain.handle('request-startup-permissions', async () => {
+    if (process.platform !== 'darwin') {
+      return {
+        success: true,
+        permissions: { accessibility: 'granted' },
+      }
+    }
+
+    let accessibility: 'granted' | 'denied' = 'denied'
+    try {
+      const trusted = systemPreferences.isTrustedAccessibilityClient(false)
+      if (trusted) {
+        accessibility = 'granted'
+      } else {
+        const prompted = systemPreferences.isTrustedAccessibilityClient(true)
+        accessibility = prompted ? 'granted' : 'denied'
+      }
+    } catch {
+      accessibility = 'denied'
+    }
+
+    return {
+      success: true,
+      permissions: { accessibility },
+    }
+  })
+
   ipcMain.handle('preload-hud-popover-windows', () => {
     const mainWin = getMainWindow()
     if (!mainWin || mainWin.isDestroyed()) {
@@ -627,18 +777,30 @@ export function registerIpcHandlers(
 
   ipcMain.handle('native-capture-start', async (_, payload: NativeCaptureStartPayload) => {
     const packagedFfmpeg = resolvePackagedFfmpegPath()
+    const platform = process.platform
     const sourceDisplayId = payload.source?.displayId
       || (typeof selectedSource?.display_id === 'string' ? selectedSource.display_id : undefined)
-    const captureRegion = payload.source?.type === 'screen'
+    const captureRegion = platform === 'win32' && payload.source?.type === 'screen'
       ? resolveCaptureRegionForDisplay(sourceDisplayId)
       : undefined
+    const sourceRegion = payload.source?.type === 'screen'
+      ? resolveCaptureRegionForDisplay(sourceDisplayId)
+      : undefined
+    const normalizedVideo = platform === 'darwin' && sourceRegion
+      ? {
+          ...payload.video,
+          width: toEven(sourceRegion.width),
+          height: toEven(sourceRegion.height),
+        }
+      : payload.video
     const normalizedPayload: NativeCaptureStartPayload = {
       ...payload,
       outputPath: path.isAbsolute(payload.outputPath)
         ? payload.outputPath
         : path.join(RECORDINGS_DIR, payload.outputPath),
+      video: normalizedVideo,
       ffmpegPath: payload.ffmpegPath || (fsSync.existsSync(packagedFfmpeg) ? packagedFfmpeg : undefined),
-      captureRegion: payload.captureRegion || captureRegion,
+      captureRegion: platform === 'win32' ? (payload.captureRegion || captureRegion) : undefined,
     }
     return await nativeCaptureService.start(normalizedPayload)
   })
@@ -866,6 +1028,13 @@ export function registerIpcHandlers(
     session: Record<string, unknown>
   }) => {
     try {
+      console.info('[native-capture][main] store-native-recording-session requested', {
+        screenVideoPath: payload.screenVideoPath,
+        hasMicAudioData: Boolean(payload.micAudioData),
+        hasCameraVideoData: Boolean(payload.cameraVideoData),
+        hasInputTelemetry: Boolean(payload.inputTelemetry),
+        sessionId: typeof payload.session?.id === 'string' ? payload.session.id : undefined,
+      })
       let finalScreenVideoPath = payload.screenVideoPath
       if (!payload.screenVideoPath.startsWith(RECORDINGS_DIR)) {
         const targetName = `${path.parse(payload.screenVideoPath).name}.mp4`
@@ -904,10 +1073,17 @@ export function registerIpcHandlers(
       let inputTelemetryPath: string | undefined
       let inputTelemetry: InputTelemetryFileV1 | undefined
       if (payload.inputTelemetry) {
+        const capturedSourceBounds = toRectBounds((payload.session as { capturedSourceBounds?: unknown }).capturedSourceBounds)
+        const normalizedTelemetry = (
+          payload.inputTelemetry.sourceKind === 'window'
+          && capturedSourceBounds
+        )
+          ? normalizeWindowTelemetryForBounds(payload.inputTelemetry, capturedSourceBounds)
+          : payload.inputTelemetry
         const telemetryFileName = payload.inputTelemetryFileName || `${path.parse(finalScreenVideoPath).name}.telemetry.json`
         inputTelemetryPath = path.join(RECORDINGS_DIR, telemetryFileName)
-        await fs.writeFile(inputTelemetryPath, JSON.stringify(payload.inputTelemetry), 'utf-8')
-        inputTelemetry = payload.inputTelemetry
+        await fs.writeFile(inputTelemetryPath, JSON.stringify(normalizedTelemetry), 'utf-8')
+        inputTelemetry = normalizedTelemetry
       }
 
       const normalizedSession = {
@@ -926,6 +1102,12 @@ export function registerIpcHandlers(
       currentRecordingSession = session
       currentVideoPath = finalScreenVideoPath
       await deleteFileIfExists(micAudioPath)
+      console.info('[native-capture][main] Native recording session stored in memory', {
+        sessionId: typeof payload.session.id === 'string' ? payload.session.id : undefined,
+        screenVideoPath: finalScreenVideoPath,
+        cameraVideoPath,
+        inputTelemetryPath,
+      })
 
       return {
         success: true,
