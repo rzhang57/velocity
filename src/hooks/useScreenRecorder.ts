@@ -231,17 +231,30 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
       try {
         const micMode = options.micProcessingMode ?? "cleaned";
         const processed = micMode === "cleaned";
-        nativeMicStreamRef.current = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            deviceId: options.micDeviceId ? { exact: options.micDeviceId } : undefined,
-            echoCancellation: processed,
-            noiseSuppression: processed,
-            autoGainControl: processed,
-            channelCount: 1,
-            sampleRate: 48000,
-          },
-          video: false,
-        });
+        try {
+          nativeMicStreamRef.current = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              deviceId: options.micDeviceId ? { exact: options.micDeviceId } : undefined,
+              echoCancellation: processed,
+              noiseSuppression: processed,
+              autoGainControl: processed,
+              channelCount: 1,
+              sampleRate: 48000,
+            },
+            video: false,
+          });
+        } catch {
+          nativeMicStreamRef.current = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              echoCancellation: processed,
+              noiseSuppression: processed,
+              autoGainControl: processed,
+              channelCount: 1,
+              sampleRate: 48000,
+            },
+            video: false,
+          });
+        }
         const micMimeType = selectAudioMimeType();
         const micRecorder = new MediaRecorder(nativeMicStreamRef.current, {
           mimeType: micMimeType,
@@ -263,15 +276,26 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
         if (options.cameraPreviewStream && options.cameraPreviewStream.getVideoTracks().length > 0) {
           nativeCameraStreamRef.current = options.cameraPreviewStream.clone();
         } else {
-          nativeCameraStreamRef.current = await navigator.mediaDevices.getUserMedia({
-            audio: false,
-            video: {
-              deviceId: options.cameraDeviceId ? { exact: options.cameraDeviceId } : undefined,
-              width: { ideal: 1280 },
-              height: { ideal: 720 },
-              frameRate: { ideal: 30, max: 60 },
-            },
-          });
+          try {
+            nativeCameraStreamRef.current = await navigator.mediaDevices.getUserMedia({
+              audio: false,
+              video: {
+                deviceId: options.cameraDeviceId ? { exact: options.cameraDeviceId } : undefined,
+                width: { ideal: 1280 },
+                height: { ideal: 720 },
+                frameRate: { ideal: 30, max: 60 },
+              },
+            });
+          } catch {
+            nativeCameraStreamRef.current = await navigator.mediaDevices.getUserMedia({
+              audio: false,
+              video: {
+                width: { ideal: 1280 },
+                height: { ideal: 720 },
+                frameRate: { ideal: 30, max: 60 },
+              },
+            });
+          }
         }
 
         const nativeCameraMimeType = selectMimeType();
@@ -702,17 +726,30 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
         try {
           const micMode = options.micProcessingMode ?? "cleaned";
           const processed = micMode === "cleaned";
-          micStream.current = await navigator.mediaDevices.getUserMedia({
-            audio: {
-              deviceId: options.micDeviceId ? { exact: options.micDeviceId } : undefined,
-              echoCancellation: processed,
-              noiseSuppression: processed,
-              autoGainControl: processed,
-              channelCount: 1,
-              sampleRate: 48000,
-            },
-            video: false,
-          });
+          try {
+            micStream.current = await navigator.mediaDevices.getUserMedia({
+              audio: {
+                deviceId: options.micDeviceId ? { exact: options.micDeviceId } : undefined,
+                echoCancellation: processed,
+                noiseSuppression: processed,
+                autoGainControl: processed,
+                channelCount: 1,
+                sampleRate: 48000,
+              },
+              video: false,
+            });
+          } catch {
+            micStream.current = await navigator.mediaDevices.getUserMedia({
+              audio: {
+                echoCancellation: processed,
+                noiseSuppression: processed,
+                autoGainControl: processed,
+                channelCount: 1,
+                sampleRate: 48000,
+              },
+              video: false,
+            });
+          }
           const micTrack = micStream.current.getAudioTracks()[0];
           if (micTrack && stream.current) {
             try {
@@ -738,15 +775,26 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
           if (options.cameraPreviewStream && options.cameraPreviewStream.getVideoTracks().length > 0) {
             cameraStream.current = options.cameraPreviewStream.clone();
           } else {
-            cameraStream.current = await navigator.mediaDevices.getUserMedia({
-              audio: false,
-              video: {
-                deviceId: options.cameraDeviceId ? { exact: options.cameraDeviceId } : undefined,
-                width: { ideal: 1280 },
-                height: { ideal: 720 },
-                frameRate: { ideal: 30, max: 60 },
-              },
-            });
+            try {
+              cameraStream.current = await navigator.mediaDevices.getUserMedia({
+                audio: false,
+                video: {
+                  deviceId: options.cameraDeviceId ? { exact: options.cameraDeviceId } : undefined,
+                  width: { ideal: 1280 },
+                  height: { ideal: 720 },
+                  frameRate: { ideal: 30, max: 60 },
+                },
+              });
+            } catch {
+              cameraStream.current = await navigator.mediaDevices.getUserMedia({
+                audio: false,
+                video: {
+                  width: { ideal: 1280 },
+                  height: { ideal: 720 },
+                  frameRate: { ideal: 30, max: 60 },
+                },
+              });
+            }
           }
           cameraCaptured = cameraStream.current.getVideoTracks().length > 0;
         } catch (error) {

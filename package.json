@@ -4,6 +4,7 @@
   "version": "v1.0.0-alpha",
   "type": "module",
   "scripts": {
+    "postinstall": "node scripts/signDevElectron.cjs",
     "dev": "npm run prepare:native && vite",
     "build": "npm run prepare:native:strict && tsc && vite build && electron-builder",
     "build:sidecar:win": "cargo build --manifest-path native-capture-sidecar/Cargo.toml --release && powershell -Command \"New-Item -ItemType Directory -Force native-capture-sidecar/bin/win32 | Out-Null; Copy-Item native-capture-sidecar/target/release/native-capture-sidecar.exe native-capture-sidecar/bin/win32/native-capture-sidecar.exe -Force\"",

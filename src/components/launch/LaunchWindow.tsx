@@ -10,6 +10,7 @@ import { RxDragHandleDots2 } from "react-icons/rx";
 import { FiMinus, FiX } from "react-icons/fi";
 import { ContentClamp } from "../ui/content-clamp";
 import { EllipsisVertical, Mic, MicOff, Camera, CameraOff, Settings } from "lucide-react";
+import { toast } from "sonner";
 
 const RECORDING_PRESET_STORAGE_KEY = "openscreen.recordingPreset";
 const RECORDING_FPS_STORAGE_KEY = "openscreen.recordingFps";
@@ -20,7 +21,7 @@ export function LaunchWindow() {
   const [elapsed, setElapsed] = useState(0);
   const [selectedSource, setSelectedSource] = useState("Screen");
   const [hasSelectedSource, setHasSelectedSource] = useState(false);
-  const [micEnabled, setMicEnabled] = useState(true);
+  const [micEnabled, setMicEnabled] = useState(false);
   const [selectedMicDeviceId, setSelectedMicDeviceId] = useState<string>("");
   const [micProcessingMode, setMicProcessingMode] = useState<"raw" | "cleaned">("cleaned");
   const [micLevel, setMicLevel] = useState(0);
@@ -33,6 +34,7 @@ export function LaunchWindow() {
   const [useLegacyRecorder, setUseLegacyRecorder] = useState(false);
   const [recordingEncoder, setRecordingEncoder] = useState<RecordingEncoder>("h264_libx264");
   const [popoverSide, setPopoverSide] = useState<"top" | "bottom">("top");
+  const [settingsHydrated, setSettingsHydrated] = useState(false);
   const hudRef = useRef<HTMLDivElement | null>(null);
   const recordingSettingsButtonRef = useRef<HTMLButtonElement | null>(null);
   const mediaSettingsButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -136,10 +138,12 @@ export function LaunchWindow() {
 
   useEffect(() => {
     window.electronAPI.preloadHudPopoverWindows().catch(() => {});
+    window.electronAPI.requestStartupPermissions().catch(() => {});
     probeNativeEncoderOptions();
   }, []);
 
   useEffect(() => {
+    let mounted = true;
     const applySettings = (settings: {
       micEnabled: boolean;
       selectedMicDeviceId: string;
@@ -171,15 +175,23 @@ export function LaunchWindow() {
       if (result.success) {
         applySettings(result.settings);
       }
-    }).catch(() => {});
+    }).catch(() => {})
+      .finally(() => {
+        if (mounted) setSettingsHydrated(true);
+      });
 
     const unsubscribe = window.electronAPI.onHudSettingsUpdated((settings) => {
       applySettings(settings);
+      if (mounted) setSettingsHydrated(true);
     });
-    return () => unsubscribe();
+    return () => {
+      mounted = false;
+      unsubscribe();
+    };
   }, []);
 
   useEffect(() => {
+    if (!settingsHydrated) return;
     window.electronAPI.updateHudSettings({
       micEnabled,
       selectedMicDeviceId,
@@ -193,7 +205,7 @@ export function LaunchWindow() {
       useLegacyRecorder,
       recordingEncoder,
     }).catch(() => {});
-  }, [micEnabled, selectedMicDeviceId, micProcessingMode, cameraEnabled, cameraPreviewEnabled, selectedCameraDeviceId, recordingPreset, recordingFps, customCursorEnabled, useLegacyRecorder, recordingEncoder]);
+  }, [settingsHydrated, micEnabled, selectedMicDeviceId, micProcessingMode, cameraEnabled, cameraPreviewEnabled, selectedCameraDeviceId, recordingPreset, recordingFps, customCursorEnabled, useLegacyRecorder, recordingEncoder]);
 
   useEffect(() => {
     let stream: MediaStream | null = null;
@@ -210,15 +222,26 @@ export function LaunchWindow() {
       }
 
       try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            deviceId: selectedMicDeviceId ? { exact: selectedMicDeviceId } : undefined,
-            echoCancellation: false,
-            noiseSuppression: false,
-            autoGainControl: false,
-          },
-          video: false,
-        });
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              deviceId: selectedMicDeviceId ? { exact: selectedMicDeviceId } : undefined,
+              echoCancellation: false,
+              noiseSuppression: false,
+              autoGainControl: false,
+            },
+            video: false,
+          });
+        } catch {
+          stream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              echoCancellation: false,
+              noiseSuppression: false,
+              autoGainControl: false,
+            },
+            video: false,
+          });
+        }
 
         if (disposed || !stream) {
           stream?.getTracks().forEach(track => track.stop());
@@ -270,11 +293,19 @@ export function LaunchWindow() {
   }, [micEnabled, selectedMicDeviceId, recording]);
 
   useEffect(() => {
-    if (cameraEnabled && cameraPreviewEnabled) {
-      window.electronAPI.openCameraPreviewWindow(selectedCameraDeviceId || undefined).catch(() => {});
-      return;
-    }
-    window.electronAPI.closeCameraPreviewWindow().catch(() => {});
+    let cancelled = false;
+    const syncCameraPreview = async () => {
+      if (cameraEnabled && cameraPreviewEnabled) {
+        if (cancelled) return;
+        await window.electronAPI.openCameraPreviewWindow(selectedCameraDeviceId || undefined).catch(() => {});
+        return;
+      }
+      await window.electronAPI.closeCameraPreviewWindow().catch(() => {});
+    };
+    void syncCameraPreview();
+    return () => {
+      cancelled = true;
+    };
   }, [cameraEnabled, cameraPreviewEnabled, selectedCameraDeviceId]);
 
   useEffect(() => {
@@ -336,6 +367,68 @@ export function LaunchWindow() {
 
   const sendHudOverlayClose = () => {
     window.electronAPI.hudOverlayClose?.();
+  };
+
+  const handleMicToggle = async () => {
+    if (recording) return;
+    if (micEnabled) {
+      setMicEnabled(false);
+      toast.message("Microphone disabled");
+      return;
+    }
+    try {
+      const probe = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+        video: false,
+      });
+      probe.getTracks().forEach((track) => track.stop());
+      setMicEnabled(true);
+      toast.success("Microphone enabled");
+      return;
+    } catch {
+      const permission = await window.electronAPI.requestMediaAccess("microphone").catch(() => ({ success: false, granted: false }));
+      if (permission.granted) {
+        setMicEnabled(true);
+        toast.success("Microphone enabled");
+        return;
+      }
+    }
+    toast.error("Microphone permission required", {
+      description: "Allow access in System Settings > Privacy & Security > Microphone.",
+    });
+  };
+
+  const handleCameraToggle = async () => {
+    if (recording) return;
+    if (cameraEnabled) {
+      setCameraEnabled(false);
+      toast.message("Camera disabled");
+      return;
+    }
+    try {
+      const probe = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: {
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+          frameRate: { ideal: 30, max: 60 },
+        },
+      });
+      probe.getTracks().forEach((track) => track.stop());
+      setCameraEnabled(true);
+      toast.success("Camera enabled");
+      return;
+    } catch {
+      const permission = await window.electronAPI.requestMediaAccess("camera").catch(() => ({ success: false, granted: false }));
+      if (permission.granted) {
+        setCameraEnabled(true);
+        toast.success("Camera enabled");
+        return;
+      }
+    }
+    toast.error("Camera permission required", {
+      description: "Allow access in System Settings > Privacy & Security > Camera.",
+    });
   };
 
   const hudAnchorClass = popoverSide === "top" ? "items-end pb-1" : "items-start pt-1";
@@ -443,7 +536,7 @@ export function LaunchWindow() {
           <Button
             variant="link"
             size="sm"
-            onClick={() => setMicEnabled((prev) => !prev)}
+            onClick={handleMicToggle}
             disabled={recording}
             title={micEnabled ? "Turn off microphone" : "Turn on microphone"}
             className={`h-7 px-2 gap-1 ${styles.toggleButton} ${micEnabled ? styles.toggleOn : styles.toggleOff}`}
@@ -466,7 +559,7 @@ export function LaunchWindow() {
           <Button
             variant="link"
             size="sm"
-            onClick={() => setCameraEnabled((prev) => !prev)}
+            onClick={handleCameraToggle}
             disabled={recording}
             title={cameraEnabled ? "Turn off camera" : "Turn on camera"}
             className={`h-7 px-2 gap-1 ${styles.toggleButton} ${cameraEnabled ? styles.toggleOn : styles.toggleOff}`}

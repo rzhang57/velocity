@@ -1,5 +1,5 @@
 import { createRequire } from "node:module";
-import { screen } from "electron";
+import { screen, systemPreferences } from "electron";
 import type {
   CursorVisualType,
   InputSourceBounds,
@@ -38,6 +38,18 @@ class NativeHookProvider {
   private handlers: Array<{ name: string; cb: (event: unknown) => void }> = [];
 
   start(callbacks: HookCallbacks): { success: boolean; message?: string } {
+    if (process.platform === "darwin") {
+      const trusted = systemPreferences.isTrustedAccessibilityClient(false);
+      if (!trusted) {
+        // Best effort prompt to open Accessibility settings for the app.
+        systemPreferences.isTrustedAccessibilityClient(true);
+        return {
+          success: false,
+          message: "Accessibility permission is required for input telemetry on macOS",
+        };
+      }
+    }
+
     const require = createRequire(import.meta.url);
     let mod: Record<string, unknown>;
     try {

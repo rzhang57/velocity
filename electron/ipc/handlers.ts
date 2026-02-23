@@ -1,4 +1,4 @@
-import { ipcMain, desktopCapturer, BrowserWindow, shell, app, dialog, screen, type Rectangle } from 'electron'
+import { ipcMain, desktopCapturer, BrowserWindow, shell, app, dialog, screen, systemPreferences, type Rectangle } from 'electron'
 
 import fs from 'node:fs/promises'
 import fsSync from 'node:fs'
@@ -42,7 +42,7 @@ type HudSettings = {
 }
 
 const hudSettings: HudSettings = {
-  micEnabled: true,
+  micEnabled: process.platform === 'darwin' ? false : true,
   selectedMicDeviceId: '',
   micProcessingMode: 'cleaned',
   cameraEnabled: false,
@@ -643,6 +643,56 @@ export function registerIpcHandlers(
 
   ipcMain.handle('get-hud-settings', () => {
     return { success: true, settings: hudSettings }
+  })
+
+  ipcMain.handle('request-media-access', async (_, kind: 'camera' | 'microphone') => {
+    if (process.platform !== 'darwin') {
+      return { success: true, granted: true }
+    }
+    if (kind !== 'camera' && kind !== 'microphone') {
+      return { success: false, granted: false, message: 'Unsupported media access type' }
+    }
+    try {
+      const status = systemPreferences.getMediaAccessStatus(kind)
+      if (status === 'granted') {
+        return { success: true, granted: true }
+      }
+      const granted = await systemPreferences.askForMediaAccess(kind)
+      if (!granted) {
+        const pane = kind === 'camera' ? 'Privacy_Camera' : 'Privacy_Microphone'
+        shell.openExternal(`x-apple.systempreferences:com.apple.preference.security?${pane}`).catch(() => {})
+      }
+      return { success: true, granted }
+    } catch (error) {
+      return { success: false, granted: false, message: String(error) }
+    }
+  })
+
+  ipcMain.handle('request-startup-permissions', async () => {
+    if (process.platform !== 'darwin') {
+      return {
+        success: true,
+        permissions: { accessibility: 'granted' },
+      }
+    }
+
+    let accessibility: 'granted' | 'denied' = 'denied'
+    try {
+      const trusted = systemPreferences.isTrustedAccessibilityClient(false)
+      if (trusted) {
+        accessibility = 'granted'
+      } else {
+        const prompted = systemPreferences.isTrustedAccessibilityClient(true)
+        accessibility = prompted ? 'granted' : 'denied'
+      }
+    } catch {
+      accessibility = 'denied'
+    }
+
+    return {
+      success: true,
+      permissions: { accessibility },
+    }
   })
 
   ipcMain.handle('preload-hud-popover-windows', () => {

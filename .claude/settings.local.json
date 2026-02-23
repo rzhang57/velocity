@@ -17,7 +17,10 @@
       "Bash(cd \"C:/Users/Ryan/Documents/GitHub/velocity\" && npm run lint 2>&1)",
       "Bash(grep:*)",
       "Bash(cd \"C:/Users/Ryan/Documents/GitHub/velocity\" && npx eslint src/components/video-editor/VideoPlayback.tsx --ext ts,tsx 2>&1)",
-      "Bash(echo Exit code: $?:*)"
+      "Bash(echo Exit code: $?:*)",
+      "Bash(codesign:*)",
+      "Bash(plutil:*)",
+      "Bash(/usr/libexec/PlistBuddy:*)"
     ]
   }
 }

@@ -72,6 +72,13 @@ interface Window {
         encoderOptions: Array<{ encoder: 'h264_libx264' | 'h264_nvenc' | 'hevc_nvenc' | 'h264_amf'; label: string; hardware: 'cpu' | 'nvidia' | 'amd' }>
       }
     }>
+    requestMediaAccess: (kind: 'camera' | 'microphone') => Promise<{ success: boolean; granted: boolean; message?: string }>
+    requestStartupPermissions: () => Promise<{
+      success: boolean
+      permissions: {
+        accessibility: 'granted' | 'denied'
+      }
+    }>
     setHudEncoderOptions: (options: Array<{ encoder: 'h264_libx264' | 'h264_nvenc' | 'hevc_nvenc' | 'h264_amf'; label: string; hardware: 'cpu' | 'nvidia' | 'amd' }>) => Promise<{ success: boolean; settings?: {
       micEnabled: boolean
       selectedMicDeviceId: string
