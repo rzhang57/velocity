@@ -690,8 +690,8 @@ export class FrameRenderer {
         continue;
       }
 
-      const stageX = this.layoutCache.baseOffset.x + sourceX * this.layoutCache.baseScale;
-      const stageY = this.layoutCache.baseOffset.y + sourceY * this.layoutCache.baseScale;
+      const stageX = this.layoutCache.baseOffset.x + (sourceX - cropStartX) * this.layoutCache.baseScale;
+      const stageY = this.layoutCache.baseOffset.y + (sourceY - cropStartY) * this.layoutCache.baseScale;
       const alpha = point.ageRatio * point.ageRatio * 0.4 * point.emphasis;
       const radius = Math.max(2, 4.5 * point.ageRatio * point.emphasis);
       this.trailGraphics.circle(stageX, stageY, radius).fill({ color: 0x34b27b, alpha });
@@ -722,18 +722,31 @@ export class FrameRenderer {
       return;
     }
 
-    const stageX = this.layoutCache.baseOffset.x + sourceX * this.layoutCache.baseScale;
-    const stageY = this.layoutCache.baseOffset.y + sourceY * this.layoutCache.baseScale;
+    const stageX = this.layoutCache.baseOffset.x + (sourceX - cropStartX) * this.layoutCache.baseScale;
+    const stageY = this.layoutCache.baseOffset.y + (sourceY - cropStartY) * this.layoutCache.baseScale;
     const prevSample = getCursorSampleAtTime(telemetry, absoluteTimeMs - 16);
-    const prevStageX = prevSample ? this.layoutCache.baseOffset.x + prevSample.xNorm * this.config.videoWidth * this.layoutCache.baseScale : stageX;
-    const prevStageY = prevSample ? this.layoutCache.baseOffset.y + prevSample.yNorm * this.config.videoHeight * this.layoutCache.baseScale : stageY;
+    const prevStageX = prevSample
+      ? this.layoutCache.baseOffset.x + (prevSample.xNorm * this.config.videoWidth - cropStartX) * this.layoutCache.baseScale
+      : stageX;
+    const prevStageY = prevSample
+      ? this.layoutCache.baseOffset.y + (prevSample.yNorm * this.config.videoHeight - cropStartY) * this.layoutCache.baseScale
+      : stageY;
     const velocityX = stageX - prevStageX;
     const velocityY = stageY - prevStageY;
+    // Normalize cursor size to match editor preview: cap baseScale at 1 (same as layoutUtils.ts),
+    // then scale up to export canvas via canvasScaleFactor.
+    const previewWidth = this.config.previewWidth || 1920;
+    const previewHeight = this.config.previewHeight || 1080;
+    const croppedVideoWidth = this.config.videoWidth * this.config.cropRegion.width;
+    const croppedVideoHeight = this.config.videoHeight * this.config.cropRegion.height;
+    const editorBaseScale = Math.min(previewWidth / croppedVideoWidth, previewHeight / croppedVideoHeight, 1);
+    const canvasScaleFactor = Math.min(this.config.width / previewWidth, this.config.height / previewHeight);
+    const normalizedCursorScale = editorBaseScale * canvasScaleFactor;
     drawCustomCursor(
       this.cursorGraphics,
       stageX,
       stageY,
-      this.layoutCache.baseScale * (this.config.customCursorSize ?? 1.2) * 22,
+      normalizedCursorScale * (this.config.customCursorSize ?? 1.2) * 22,
       sample.cursorType,
       getCursorClickPulse(telemetry.clicks, absoluteTimeMs),
       velocityX,
@@ -767,7 +780,14 @@ export class FrameRenderer {
 
     const localX = (sourceX - cropStartX) * this.layoutCache.baseScale;
     const localY = (sourceY - cropStartY) * this.layoutCache.baseScale;
-    const radius = Math.max(9, this.layoutCache.baseScale * (this.config.customCursorSize ?? 1.2) * 14);
+    const previewWidth = this.config.previewWidth || 1920;
+    const previewHeight = this.config.previewHeight || 1080;
+    const croppedVideoWidth = this.config.videoWidth * this.config.cropRegion.width;
+    const croppedVideoHeight = this.config.videoHeight * this.config.cropRegion.height;
+    const editorBaseScale = Math.min(previewWidth / croppedVideoWidth, previewHeight / croppedVideoHeight, 1);
+    const canvasScaleFactor = Math.min(this.config.width / previewWidth, this.config.height / previewHeight);
+    const normalizedCursorScale = editorBaseScale * canvasScaleFactor;
+    const radius = Math.max(9, normalizedCursorScale * (this.config.customCursorSize ?? 1.2) * 14);
     this.cursorEraserGraphics.circle(localX, localY, radius).fill({ color: 0xffffff, alpha: 1 });
   }
 

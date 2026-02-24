@@ -17,6 +17,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   switchToEditor: () => {
     return ipcRenderer.invoke('switch-to-editor')
   },
+  openEditorNow: () => {
+    return ipcRenderer.invoke('open-editor-now')
+  },
   startNewRecordingSession: (payload?: {
     replaceCurrentTake?: boolean
     session?: {
@@ -68,7 +71,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     cameraPreviewEnabled?: boolean
     selectedCameraDeviceId?: string
     recordingPreset?: 'performance' | 'balanced' | 'quality'
-    recordingFps?: 60 | 120
+    recordingFps?: 30 | 60
     customCursorEnabled?: boolean
     useLegacyRecorder?: boolean
     recordingEncoder?: 'h264_libx264' | 'h264_nvenc' | 'hevc_nvenc' | 'h264_amf'
@@ -106,7 +109,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     cameraPreviewEnabled: boolean
     selectedCameraDeviceId: string
       recordingPreset: 'performance' | 'balanced' | 'quality'
-      recordingFps: 60 | 120
+      recordingFps: 30 | 60
       customCursorEnabled: boolean
       useLegacyRecorder: boolean
       recordingEncoder: 'h264_libx264' | 'h264_nvenc' | 'hevc_nvenc' | 'h264_amf'
@@ -120,7 +123,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       cameraPreviewEnabled: boolean
       selectedCameraDeviceId: string
       recordingPreset: 'performance' | 'balanced' | 'quality'
-      recordingFps: 60 | 120
+      recordingFps: 30 | 60
       customCursorEnabled: boolean
       useLegacyRecorder: boolean
       recordingEncoder: 'h264_libx264' | 'h264_nvenc' | 'hevc_nvenc' | 'h264_amf'
@@ -226,6 +229,22 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   getCurrentRecordingSession: () => {
     return ipcRenderer.invoke('get-current-recording-session')
+  },
+  setRecordingFinalizationState: (partial: {
+    status?: 'idle' | 'finalizing' | 'ready' | 'error'
+    sessionId?: string
+    message?: string
+    progressPhase?: 'stopping-native' | 'storing-assets' | 'muxing-audio' | 'done'
+  }) => {
+    return ipcRenderer.invoke('set-recording-finalization-state', partial)
+  },
+  getRecordingFinalizationState: () => {
+    return ipcRenderer.invoke('get-recording-finalization-state')
+  },
+  onRecordingSessionReady: (callback: (payload: { session?: Record<string, unknown> }) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, payload: { session?: Record<string, unknown> }) => callback(payload)
+    ipcRenderer.on('recording-session-ready', listener)
+    return () => ipcRenderer.removeListener('recording-session-ready', listener)
   },
   clearCurrentVideoPath: () => {
     return ipcRenderer.invoke('clear-current-video-path')

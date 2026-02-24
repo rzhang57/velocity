@@ -20,7 +20,8 @@
       "Bash(echo Exit code: $?:*)",
       "Bash(codesign:*)",
       "Bash(plutil:*)",
-      "Bash(/usr/libexec/PlistBuddy:*)"
+      "Bash(/usr/libexec/PlistBuddy:*)",
+      "Bash(cd /c/Users/Ryan/Documents/GitHub/velocity/native-capture-sidecar && cargo check --target x86_64-pc-windows-msvc 2>&1)"
     ]
   }
 }

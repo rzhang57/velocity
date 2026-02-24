@@ -5,7 +5,7 @@ import type { RecordingEncoder } from "@/types/nativeCapture";
 type PopoverKind = "recording" | "media";
 type MicProcessingMode = "raw" | "cleaned";
 type RecordingPreset = "performance" | "balanced" | "quality";
-type RecordingFps = 60 | 120;
+type RecordingFps = 30 | 60;
 const RECORDING_NOTICE_STORAGE_KEY = "openscreen.recordingNotice";
 
 type HudSettings = {
@@ -255,7 +255,7 @@ export function HudPopoverWindow() {
             <div className="space-y-1.5">
               <label className="text-[10px] uppercase tracking-wider text-slate-500">FPS</label>
               <div className="grid grid-cols-2 gap-1">
-                {[60, 120].map((fps) => (
+                {[30, 60].map((fps) => (
                   <button
                     key={fps}
                     type="button"

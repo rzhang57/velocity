@@ -55,8 +55,10 @@ export function LaunchWindow() {
     if (storedPreset === "performance" || storedPreset === "balanced" || storedPreset === "quality") {
       setRecordingPreset(storedPreset);
     }
-    if (storedFps === "60" || storedFps === "120") {
+    if (storedFps === "30" || storedFps === "60") {
       setRecordingFps(Number(storedFps) as RecordingFps);
+    } else if (storedFps === "120") {
+      setRecordingFps(60);
     }
   }, []);
 

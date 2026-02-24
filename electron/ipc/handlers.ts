@@ -30,7 +30,7 @@ type HudSettings = {
   cameraPreviewEnabled: boolean
   selectedCameraDeviceId: string
   recordingPreset: 'performance' | 'balanced' | 'quality'
-  recordingFps: 60 | 120
+  recordingFps: 30 | 60
   customCursorEnabled: boolean
   useLegacyRecorder: boolean
   recordingEncoder: 'h264_libx264' | 'h264_nvenc' | 'hevc_nvenc' | 'h264_amf'
@@ -39,6 +39,15 @@ type HudSettings = {
     label: string
     hardware: 'cpu' | 'nvidia' | 'amd'
   }>
+}
+
+type RecordingFinalizationPhase = 'stopping-native' | 'storing-assets' | 'muxing-audio' | 'done'
+type RecordingFinalizationStatus = 'idle' | 'finalizing' | 'ready' | 'error'
+type RecordingFinalizationState = {
+  status: RecordingFinalizationStatus
+  sessionId?: string
+  message?: string
+  progressPhase?: RecordingFinalizationPhase
 }
 
 const hudSettings: HudSettings = {
@@ -56,6 +65,18 @@ const hudSettings: HudSettings = {
   encoderOptions: [
     { encoder: 'h264_libx264', label: 'x264 (CPU)', hardware: 'cpu' },
   ],
+}
+let recordingEncoderManuallySet = false
+let recordingFinalizationState: RecordingFinalizationState = { status: 'idle' }
+
+function pickPreferredHardwareEncoder(options: HudSettings['encoderOptions']): HudSettings['recordingEncoder'] | null {
+  const preferredOrder: HudSettings['recordingEncoder'][] = ['h264_nvenc', 'h264_amf', 'hevc_nvenc']
+  for (const encoder of preferredOrder) {
+    if (options.some((option) => option.encoder === encoder)) {
+      return encoder
+    }
+  }
+  return null
 }
 
 function resolveCaptureRegionForDisplay(displayId?: string): { x: number; y: number; width: number; height: number } | undefined {
@@ -226,7 +247,9 @@ async function loadTelemetryForVideo(videoPath: string): Promise<{ path: string;
 
 export function registerIpcHandlers(
   createEditorWindow: () => void,
+  openEditorWindowNow: () => void,
   createHudOverlayWindow: () => void,
+  openHudOverlayWindowNow: () => void,
   createSourceSelectorWindow: () => BrowserWindow,
   createCameraPreviewWindow: (deviceId?: string) => BrowserWindow,
   closeCameraPreviewWindow: () => void,
@@ -261,6 +284,15 @@ export function registerIpcHandlers(
     mediaPopoverWindow = null
     delete popoverAnchors.recording
     delete popoverAnchors.media
+  }
+
+  const broadcastRecordingSessionReady = () => {
+    const payload = currentRecordingSession ? { session: currentRecordingSession } : {}
+    BrowserWindow.getAllWindows().forEach((win) => {
+      if (!win.isDestroyed()) {
+        win.webContents.send('recording-session-ready', payload)
+      }
+    })
   }
 
   const computePopoverBounds = (
@@ -599,6 +631,16 @@ export function registerIpcHandlers(
     createEditorWindow()
   })
 
+  ipcMain.handle('open-editor-now', () => {
+    closeHudPopoverWindows()
+    const mainWin = getMainWindow()
+    if (mainWin && !mainWin.isDestroyed()) {
+      mainWin.minimize()
+    }
+    openEditorWindowNow()
+    return { success: true }
+  })
+
 
 
   ipcMain.handle('store-recorded-video', async (_, videoData: ArrayBuffer, fileName: string) => {
@@ -622,7 +664,7 @@ export function registerIpcHandlers(
     }
   })
 
-  ipcMain.handle('start-new-recording-session', async (_, payload?: {
+  ipcMain.handle('start-new-recording-session', async (event, payload?: {
     replaceCurrentTake?: boolean
     session?: {
       screenVideoPath?: string
@@ -631,7 +673,14 @@ export function registerIpcHandlers(
     }
   }) => {
     const replaceCurrentTake = Boolean(payload?.replaceCurrentTake)
-    if (replaceCurrentTake && payload?.session) {
+    if (!replaceCurrentTake) {
+      recordingFinalizationState = { status: 'idle' }
+      closeHudPopoverWindows()
+      openHudOverlayWindowNow()
+      return { success: true, keptCurrentTake: true }
+    }
+
+    if (payload?.session) {
       await deleteFileIfExists(payload.session.screenVideoPath)
       await deleteFileIfExists(payload.session.cameraVideoPath)
       await deleteFileIfExists(payload.session.inputTelemetryPath)
@@ -639,9 +688,14 @@ export function registerIpcHandlers(
 
     currentRecordingSession = null
     currentVideoPath = null
+    recordingFinalizationState = { status: 'idle' }
+    const callerWindow = BrowserWindow.fromWebContents(event.sender)
+    if (callerWindow && !callerWindow.isDestroyed()) {
+      callerWindow.close()
+    }
     closeHudPopoverWindows()
     createHudOverlayWindow()
-    return { success: true }
+    return { success: true, keptCurrentTake: false }
   })
 
   ipcMain.handle('get-hud-settings', () => {
@@ -729,7 +783,7 @@ export function registerIpcHandlers(
     if (partial.recordingPreset === 'performance' || partial.recordingPreset === 'balanced' || partial.recordingPreset === 'quality') {
       hudSettings.recordingPreset = partial.recordingPreset
     }
-    if (partial.recordingFps === 60 || partial.recordingFps === 120) hudSettings.recordingFps = partial.recordingFps
+    if (partial.recordingFps === 30 || partial.recordingFps === 60) hudSettings.recordingFps = partial.recordingFps
     if (typeof partial.customCursorEnabled === 'boolean') {
       hudSettings.customCursorEnabled = partial.customCursorEnabled
       if (partial.customCursorEnabled) {
@@ -743,6 +797,9 @@ export function registerIpcHandlers(
       }
     }
     if (partial.recordingEncoder === 'h264_libx264' || partial.recordingEncoder === 'h264_nvenc' || partial.recordingEncoder === 'hevc_nvenc' || partial.recordingEncoder === 'h264_amf') {
+      if (partial.recordingEncoder !== hudSettings.recordingEncoder) {
+        recordingEncoderManuallySet = true
+      }
       hudSettings.recordingEncoder = partial.recordingEncoder
     }
     broadcastHudSettings()
@@ -766,6 +823,12 @@ export function registerIpcHandlers(
     hudSettings.encoderOptions = normalized
     if (!hudSettings.encoderOptions.some((option) => option.encoder === hudSettings.recordingEncoder)) {
       hudSettings.recordingEncoder = hudSettings.encoderOptions[0]?.encoder ?? 'h264_libx264'
+      recordingEncoderManuallySet = false
+    } else if (!recordingEncoderManuallySet && hudSettings.recordingEncoder === 'h264_libx264') {
+      const hardwareDefault = pickPreferredHardwareEncoder(hudSettings.encoderOptions)
+      if (hardwareDefault) {
+        hudSettings.recordingEncoder = hardwareDefault
+      }
     }
     broadcastHudSettings()
     return { success: true, settings: hudSettings }
@@ -999,6 +1062,12 @@ export function registerIpcHandlers(
 
       currentRecordingSession = session
       currentVideoPath = screenVideoPath
+      recordingFinalizationState = {
+        status: 'ready',
+        sessionId: typeof payload.session.id === 'string' ? payload.session.id : undefined,
+        progressPhase: 'done',
+      }
+      broadcastRecordingSessionReady()
       console.info('[auto-zoom][main] Recording session stored in memory', {
         sessionId: typeof payload.session.id === 'string' ? payload.session.id : undefined,
         screenVideoPath,
@@ -1012,6 +1081,11 @@ export function registerIpcHandlers(
       }
     } catch (error) {
       console.error('[auto-zoom][main] Failed to store recording session', error)
+      recordingFinalizationState = {
+        status: 'error',
+        sessionId: typeof payload.session?.id === 'string' ? payload.session.id : undefined,
+        message: 'Failed to store recording session',
+      }
       return {
         success: false,
         message: 'Failed to store recording session',
@@ -1105,6 +1179,12 @@ export function registerIpcHandlers(
       currentRecordingSession = session
       currentVideoPath = finalScreenVideoPath
       await deleteFileIfExists(micAudioPath)
+      recordingFinalizationState = {
+        status: 'ready',
+        sessionId: typeof payload.session.id === 'string' ? payload.session.id : undefined,
+        progressPhase: 'done',
+      }
+      broadcastRecordingSessionReady()
       console.info('[native-capture][main] Native recording session stored in memory', {
         sessionId: typeof payload.session.id === 'string' ? payload.session.id : undefined,
         screenVideoPath: finalScreenVideoPath,
@@ -1119,6 +1199,11 @@ export function registerIpcHandlers(
       }
     } catch (error) {
       console.error('[native-capture][main] Failed to store native recording session', error)
+      recordingFinalizationState = {
+        status: 'error',
+        sessionId: typeof payload.session?.id === 'string' ? payload.session.id : undefined,
+        message: 'Failed to store native recording session',
+      }
       return {
         success: false,
         message: 'Failed to store native recording session',
@@ -1350,12 +1435,19 @@ export function registerIpcHandlers(
   ipcMain.handle('clear-current-video-path', () => {
     currentVideoPath = null;
     currentRecordingSession = null;
+    recordingFinalizationState = { status: 'idle' }
     return { success: true };
   });
 
   ipcMain.handle('set-current-recording-session', (_, session: Record<string, unknown>) => {
     currentRecordingSession = session;
     currentVideoPath = typeof session.screenVideoPath === 'string' ? session.screenVideoPath : null;
+    recordingFinalizationState = {
+      status: 'ready',
+      sessionId: typeof session.id === 'string' ? session.id : undefined,
+      progressPhase: 'done',
+    }
+    broadcastRecordingSessionReady()
     console.info('[auto-zoom][main] set-current-recording-session', {
       sessionId: typeof session.id === 'string' ? session.id : undefined,
       hasTelemetry: Boolean(session.inputTelemetry),
@@ -1374,6 +1466,18 @@ export function registerIpcHandlers(
       ? { success: true, session: currentRecordingSession }
       : { success: false };
   });
+
+  ipcMain.handle('set-recording-finalization-state', (_, partial: Partial<RecordingFinalizationState>) => {
+    recordingFinalizationState = {
+      ...recordingFinalizationState,
+      ...partial,
+    }
+    return { success: true, state: recordingFinalizationState }
+  })
+
+  ipcMain.handle('get-recording-finalization-state', () => {
+    return { success: true, ...recordingFinalizationState }
+  })
 
   ipcMain.handle('get-platform', () => {
     return process.platform;

@@ -87,9 +87,9 @@ if (existsSync(targetSidecar)) {
 
 if (platform === "win32") {
   const bundled = resolveBundledFfmpegPath();
-  if (bundled && existsSync(bundled)) {
-    copyFileSync(bundled, binFfmpeg);
-    console.info(`[native-capture] Using bundled ffmpeg from @ffmpeg-installer/ffmpeg: ${bundled}`);
+  if (bundled && existsSync(bundled.path)) {
+    copyFileSync(bundled.path, binFfmpeg);
+    console.info(`[native-capture] Using bundled ffmpeg from ${bundled.source}: ${bundled.path}`);
   }
 
   if (!existsSync(binFfmpeg)) {
@@ -104,7 +104,7 @@ if (platform === "win32") {
   }
 
   if (!existsSync(binFfmpeg)) {
-    const message = "[native-capture] ffmpeg.exe not available from @ffmpeg-installer/ffmpeg or PATH.";
+    const message = "[native-capture] ffmpeg.exe not available from bundled provider or PATH.";
     if (strictMode) {
       console.error(`${message} Failing because --strict is enabled.`);
       process.exit(1);
@@ -113,10 +113,10 @@ if (platform === "win32") {
   }
 } else {
   const bundled = resolveBundledFfmpegPath();
-  if (bundled && existsSync(bundled)) {
-    copyFileSync(bundled, binFfmpeg);
+  if (bundled && existsSync(bundled.path)) {
+    copyFileSync(bundled.path, binFfmpeg);
     ensureExecutableIfNeeded(binFfmpeg, platform);
-    console.info(`[native-capture] Using bundled ffmpeg from @ffmpeg-installer/ffmpeg: ${bundled}`);
+    console.info(`[native-capture] Using bundled ffmpeg from ${bundled.source}: ${bundled.path}`);
   }
 
   if (!existsSync(binFfmpeg)) {
@@ -132,7 +132,7 @@ if (platform === "win32") {
   }
 
   if (!existsSync(binFfmpeg)) {
-    const message = "[native-capture] ffmpeg not available from @ffmpeg-installer/ffmpeg or PATH on macOS.";
+    const message = "[native-capture] ffmpeg not available from bundled provider or PATH on macOS.";
     if (strictMode) {
       console.error(`${message} Failing because --strict is enabled.`);
       process.exit(1);
@@ -186,9 +186,21 @@ function ensureExecutableIfNeeded(filePath, currentPlatform) {
 function resolveBundledFfmpegPath() {
   try {
     const require = createRequire(import.meta.url);
+    const staticPath = require("ffmpeg-static");
+    if (typeof staticPath === "string" && staticPath.length > 0) {
+      return { path: staticPath, source: "ffmpeg-static" };
+    }
+  } catch {
+    // Try the legacy installer package as fallback.
+  }
+  try {
+    const require = createRequire(import.meta.url);
     const installer = require("@ffmpeg-installer/ffmpeg");
-    return typeof installer?.path === "string" ? installer.path : null;
+    if (typeof installer?.path === "string" && installer.path.length > 0) {
+      return { path: installer.path, source: "@ffmpeg-installer/ffmpeg" };
+    }
   } catch {
     return null;
   }
+  return null;
 }

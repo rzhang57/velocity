@@ -24,7 +24,7 @@ export interface RecorderOptions {
 }
 
 export type RecordingPreset = "performance" | "balanced" | "quality";
-export type RecordingFps = 60 | 120;
+export type RecordingFps = 30 | 60;
 
 type CaptureProfile = {
   width: number;
@@ -178,12 +178,12 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
   const computeBitrate = (width: number, height: number, fps: RecordingFps) => {
     const pixels = width * height;
     if (pixels >= 3840 * 2160) {
-      return fps === 120 ? 95_000_000 : 60_000_000;
+      return fps === 60 ? 60_000_000 : 36_000_000;
     }
     if (pixels >= 2560 * 1440) {
-      return fps === 120 ? 70_000_000 : 42_000_000;
+      return fps === 60 ? 42_000_000 : 25_000_000;
     }
-    return fps === 120 ? 40_000_000 : 24_000_000;
+    return fps === 60 ? 24_000_000 : 14_000_000;
   };
 
   const computeNativeBitrate = (preset: RecordingPreset, fps: RecordingFps) => {
@@ -192,7 +192,7 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
       balanced: 22_000_000,
       quality: 32_000_000,
     };
-    const fpsMultiplier = fps === 120 ? 1.7 : 1;
+    const fpsMultiplier = fps === 60 ? 1 : 0.65;
     return Math.round(baseByPreset[preset] * fpsMultiplier);
   };
 
@@ -439,17 +439,85 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
     return { micBlob, cameraBlob, micStartOffsetMs, cameraStartOffsetMs, cameraDurationMs };
   };
 
+  const withRecomputedTelemetryStats = (telemetry: InputTelemetryFileV1): InputTelemetryFileV1 => {
+    const stats = telemetry.events.reduce((acc, event) => {
+      acc.totalEvents += 1;
+      if (event.type === "mouseDown") acc.mouseDownCount += 1;
+      if (event.type === "mouseUp") acc.mouseUpCount += 1;
+      if (event.type === "mouseMoveSampled") acc.mouseMoveCount += 1;
+      if (event.type === "wheel") acc.wheelCount += 1;
+      if (event.type === "keyDownCategory") acc.keyDownCount += 1;
+      return acc;
+    }, {
+      totalEvents: 0,
+      mouseDownCount: 0,
+      mouseUpCount: 0,
+      mouseMoveCount: 0,
+      wheelCount: 0,
+      keyDownCount: 0,
+    });
+
+    return { ...telemetry, stats };
+  };
+
+  const trimTelemetryToDuration = (telemetry: InputTelemetryFileV1, durationMs: number): InputTelemetryFileV1 => {
+    const TELEMETRY_END_TOLERANCE_MS = 350;
+    const TELEMETRY_TRIM_ONLY_IF_OVERRUN_MS = 1_500;
+    const maxTimestamp = telemetry.startedAtMs + Math.max(0, durationMs) + TELEMETRY_END_TOLERANCE_MS;
+    const lastEventTs = telemetry.events[telemetry.events.length - 1]?.ts;
+    if (typeof lastEventTs === "number" && lastEventTs <= maxTimestamp + TELEMETRY_TRIM_ONLY_IF_OVERRUN_MS) {
+      return telemetry;
+    }
+    const nextEvents = telemetry.events.filter((event) => event.ts <= maxTimestamp);
+    if (nextEvents.length === telemetry.events.length) return telemetry;
+    return withRecomputedTelemetryStats({ ...telemetry, events: nextEvents });
+  };
+
+  const alignTelemetryStartToNativeDuration = (
+    telemetry: InputTelemetryFileV1,
+    nativeDurationMs: number,
+    wallElapsedMs: number
+  ): InputTelemetryFileV1 => {
+    const MAX_ALIGNMENT_SHIFT_MS = 1_500;
+    const rawShiftMs = Math.max(0, wallElapsedMs - nativeDurationMs);
+    const shiftMs = Math.min(MAX_ALIGNMENT_SHIFT_MS, rawShiftMs);
+    if (shiftMs < 1) return telemetry;
+    return {
+      ...telemetry,
+      startedAtMs: telemetry.startedAtMs + shiftMs,
+    };
+  };
+
   const stopNativeCaptureFlow = async () => {
     const sessionId = sessionIdRef.current;
     console.info("[native-capture][renderer] stop flow started", { sessionId });
     setRecording(false);
     window.electronAPI?.setRecordingState(false);
+    await window.electronAPI.setRecordingFinalizationState({
+      status: "finalizing",
+      sessionId,
+      message: "Finalizing recording...",
+      progressPhase: "stopping-native",
+    });
+    await window.electronAPI.openEditorNow();
 
     const options = nativeOptionsRef.current;
     const requestedProfile = nativeCaptureProfileRef.current;
     const auxiliaryResultPromise = stopNativeAuxiliaryCapture();
+    const telemetryStopPromise = (async () => {
+      // Keep a short grace window so the user's stop click is captured before telemetry closes.
+      await new Promise((resolve) => setTimeout(resolve, 160));
+      const trackingResult = await window.electronAPI.stopInputTracking();
+        if (trackingResult.success && trackingResult.telemetry && trackingResult.telemetry.stats.totalEvents > 0) {
+          return trackingResult.telemetry;
+        }
+        return undefined;
+      })()
+      .catch((error) => {
+        console.warn("[auto-zoom][telemetry] stopInputTracking failed while stopping native capture", error);
+        return undefined;
+      });
     let nativeResult: Awaited<ReturnType<typeof window.electronAPI.nativeCaptureStop>> | null = null;
-    let inputTelemetry: InputTelemetryFileV1 | undefined;
     try {
       console.info("[native-capture][renderer] requesting native-capture-stop", { sessionId });
       nativeResult = await window.electronAPI.nativeCaptureStop({
@@ -464,20 +532,17 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
       });
     } catch (error) {
       console.error("[native-capture] Failed to stop native capture", error);
+      await window.electronAPI.setRecordingFinalizationState({
+        status: "error",
+        sessionId,
+        message: `Failed to stop native capture: ${String(error)}`,
+      });
     } finally {
       nativeCaptureActiveRef.current = false;
     }
 
-    try {
-      const trackingResult = await window.electronAPI.stopInputTracking();
-      if (trackingResult.success && trackingResult.telemetry && trackingResult.telemetry.stats.totalEvents > 0) {
-        inputTelemetry = trackingResult.telemetry;
-      }
-    } catch (error) {
-      console.warn("[auto-zoom][telemetry] stopInputTracking failed after native capture", error);
-    }
-
-    const auxiliaryResult = await auxiliaryResultPromise;
+    const [auxiliaryResult, inputTelemetryRaw] = await Promise.all([auxiliaryResultPromise, telemetryStopPromise]);
+    let inputTelemetry = inputTelemetryRaw;
     console.info("[native-capture][renderer] auxiliary capture stop resolved", {
       hasMicBlob: Boolean(auxiliaryResult.micBlob),
       hasCameraBlob: Boolean(auxiliaryResult.cameraBlob),
@@ -485,13 +550,32 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 
     if (!nativeResult?.success || !nativeResult.result?.outputPath) {
       console.error("[native-capture] No output from native capture stop", nativeResult);
+      await window.electronAPI.setRecordingFinalizationState({
+        status: "error",
+        sessionId,
+        message: nativeResult?.message || "Native capture did not produce output",
+      });
       nativeOptionsRef.current = null;
       nativeCaptureProfileRef.current = null;
       return;
     }
 
+    await window.electronAPI.setRecordingFinalizationState({
+      status: "finalizing",
+      sessionId,
+      message: "Preparing recording assets...",
+      progressPhase: "storing-assets",
+    });
     const now = Date.now();
-    const durationMs = nativeResult.result.durationMs ?? Math.max(0, now - startTime.current);
+    const wallElapsedMs = Math.max(0, now - startTime.current);
+    const nativeDurationMs = nativeResult.result.durationMs;
+    const durationMs = Math.max(nativeDurationMs ?? 0, wallElapsedMs);
+    if (inputTelemetry) {
+      if (typeof nativeDurationMs === "number" && nativeDurationMs > 0) {
+        inputTelemetry = alignTelemetryStartToNativeDuration(inputTelemetry, nativeDurationMs, wallElapsedMs);
+      }
+      inputTelemetry = trimTelemetryToDuration(inputTelemetry, durationMs);
+    }
     const sessionPayload = {
       screenVideoPath: nativeResult.result.outputPath,
       inputTelemetry,
@@ -528,6 +612,12 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
       },
     };
 
+    await window.electronAPI.setRecordingFinalizationState({
+      status: "finalizing",
+      sessionId,
+      message: auxiliaryResult.micBlob ? "Merging microphone audio..." : "Finalizing recording...",
+      progressPhase: auxiliaryResult.micBlob ? "muxing-audio" : "storing-assets",
+    });
     const stored = await window.electronAPI.storeNativeRecordingSession(sessionPayload);
     console.info("[native-capture][renderer] store-native-recording-session resolved", {
       success: stored?.success,
@@ -536,18 +626,28 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
     });
     if (!stored.success || !stored.session) {
       console.error("[native-capture] Failed to store native recording session", stored.message);
+      await window.electronAPI.setRecordingFinalizationState({
+        status: "error",
+        sessionId,
+        message: stored.message || "Failed to store recording session",
+      });
       nativeOptionsRef.current = null;
       nativeCaptureProfileRef.current = null;
       return;
     }
     nativeOptionsRef.current = null;
     nativeCaptureProfileRef.current = null;
-    console.info("[native-capture][renderer] switching to editor", {
+    console.info("[native-capture][renderer] recording session finalized", {
       sessionId: typeof stored.session.id === "string" ? stored.session.id : undefined,
       screenVideoPath: typeof stored.session.screenVideoPath === "string" ? stored.session.screenVideoPath : undefined,
     });
     await window.electronAPI.setCurrentRecordingSession(stored.session);
-    await window.electronAPI.switchToEditor();
+    await window.electronAPI.setRecordingFinalizationState({
+      status: "ready",
+      sessionId,
+      progressPhase: "done",
+    });
+    window.close();
   };
 
   const stopRecording = useRef(() => {
@@ -684,20 +784,23 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
           window.electronAPI?.setRecordingState(true);
           return;
         }
-        const canRetryWithX264 = Boolean(options.customCursorEnabled)
-          && (selectedEncoder === "h264_nvenc" || selectedEncoder === "hevc_nvenc");
-        if (canRetryWithX264) {
-          console.warn("[native-capture] NVENC start failed with custom cursor, retrying with x264 (CPU)", nativeStart.message);
-          nativeScreenStartTimeRef.current = Date.now();
-          const fallbackStart = await window.electronAPI.nativeCaptureStart(await buildNativePayload("h264_libx264"));
-          if (fallbackStart.success) {
-            nativeCaptureActiveRef.current = true;
-            nativeRecordingEncoderRef.current = "h264_libx264";
-            window.electronAPI?.updateHudSettings({ recordingEncoder: "h264_libx264" }).catch(() => {});
-            setRecordingNotice("NVENC failed at start. Switched to x264 (CPU) for this recording.");
-            setRecording(true);
-            window.electronAPI?.setRecordingState(true);
-            return;
+        const canPromptX264Retry = selectedEncoder !== "h264_libx264";
+        if (canPromptX264Retry) {
+          const retryWithX264 = window.confirm(
+            `Native recorder failed with ${selectedEncoder}. Try x264 (CPU) instead?`
+          );
+          if (retryWithX264) {
+            nativeScreenStartTimeRef.current = Date.now();
+            const x264Start = await window.electronAPI.nativeCaptureStart(await buildNativePayload("h264_libx264"));
+            if (x264Start.success) {
+              nativeCaptureActiveRef.current = true;
+              nativeRecordingEncoderRef.current = "h264_libx264";
+              window.electronAPI?.updateHudSettings({ recordingEncoder: "h264_libx264" }).catch(() => {});
+              setRecordingNotice("Native encoder failed. Retrying with x264 (CPU) for this recording.");
+              setRecording(true);
+              window.electronAPI?.setRecordingState(true);
+              return;
+            }
           }
         }
         cancelNativeAuxiliaryCapture();

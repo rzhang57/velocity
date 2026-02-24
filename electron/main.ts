@@ -59,6 +59,11 @@ let sourceSelectorWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let selectedSourceName = ''
 
+function safeCloseWindow(win: BrowserWindow | null) {
+  if (!win || win.isDestroyed()) return
+  win.close()
+}
+
 // Tray Icons
 const defaultTrayIcon = getTrayIcon('velocity.png');
 const recordingTrayIcon = getTrayIcon('rec-button.png');
@@ -132,24 +137,33 @@ function updateTrayMenu(recording: boolean = false) {
 }
 
 function createEditorWindowWrapper() {
-  if (mainWindow) {
-    mainWindow.close()
-    mainWindow = null
-  }
+  safeCloseWindow(mainWindow)
+  mainWindow = null
   closeCameraPreviewWindow()
   mainWindow = createEditorWindow()
 }
 
+function openEditorWindowNowWrapper() {
+  const editorWindow = createEditorWindow()
+  editorWindow.focus()
+}
+
 function createHudOverlayWindowWrapper() {
-  if (mainWindow) {
-    mainWindow.close()
-    mainWindow = null
-  }
+  safeCloseWindow(mainWindow)
+  mainWindow = null
   closeCameraPreviewWindow()
-  if (sourceSelectorWindow && !sourceSelectorWindow.isDestroyed()) {
-    sourceSelectorWindow.close()
-  }
+  safeCloseWindow(sourceSelectorWindow)
   sourceSelectorWindow = null
+  mainWindow = createHudOverlayWindow()
+}
+
+function openHudOverlayWindowNowWrapper() {
+  closeCameraPreviewWindow()
+  safeCloseWindow(sourceSelectorWindow)
+  sourceSelectorWindow = null
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.minimize()
+  }
   mainWindow = createHudOverlayWindow()
 }
 
@@ -215,10 +229,13 @@ app.whenReady().then(async () => {
       }
     }, { useSystemPicker: false })
 
-    // Listen for HUD overlay quit event (macOS only)
+    // Close only the HUD window that triggered this event.
     const { ipcMain } = await import('electron');
-    ipcMain.on('hud-overlay-close', () => {
-      app.quit();
+    ipcMain.on('hud-overlay-close', (event) => {
+      const senderWindow = BrowserWindow.fromWebContents(event.sender);
+      if (senderWindow && !senderWindow.isDestroyed()) {
+        senderWindow.close();
+      }
     });
     createTray()
     updateTrayMenu()
@@ -227,7 +244,9 @@ app.whenReady().then(async () => {
 
   registerIpcHandlers(
     createEditorWindowWrapper,
+    openEditorWindowNowWrapper,
     createHudOverlayWindowWrapper,
+    openHudOverlayWindowNowWrapper,
     createSourceSelectorWindowWrapper,
     createCameraPreviewWindow,
     closeCameraPreviewWindow,
@@ -239,7 +258,7 @@ app.whenReady().then(async () => {
       if (!tray) createTray();
       updateTrayMenu(recording);
       if (!recording) {
-        if (mainWindow) mainWindow.restore();
+        if (mainWindow && !mainWindow.isDestroyed()) mainWindow.restore();
       }
     }
   )

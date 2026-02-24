@@ -61,6 +61,7 @@ export default function VideoEditor() {
   const [recordingSession, setRecordingSession] = useState<RecordingSession | null>(null);
   const [cameraVideoPath, setCameraVideoPath] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadingMessage, setLoadingMessage] = useState("Loading editor...");
   const [cursorProcessing, setCursorProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -127,60 +128,99 @@ export default function VideoEditor() {
     return fileUrl;
   };
 
-  useEffect(() => {
-    async function loadVideo() {
-      try {
-        const sessionResult = await window.electronAPI.getCurrentRecordingSession();
-        if (sessionResult.success && sessionResult.session) {
-          const session = sessionResult.session as unknown as RecordingSession;
-          const customEnabled = Boolean(session.customCursorEnabled && session.inputTelemetry);
-          if (customEnabled) {
-            setCursorProcessing(true);
-          }
-          setRecordingSession(session);
-          setVideoPath(toFileUrl(session.screenVideoPath));
-          setCameraVideoPath(session.cameraVideoPath ? toFileUrl(session.cameraVideoPath) : null);
-          if (customEnabled) {
-            await new Promise((resolve) => setTimeout(resolve, 200));
-            setCustomCursorTelemetry(buildSmoothedCursorTelemetry(session.inputTelemetry));
-            setCursorProcessing(false);
-          } else {
-            setCustomCursorTelemetry(null);
-            setCursorProcessing(false);
-          }
-          console.info("[auto-zoom][editor] Loaded recording session", {
-            sessionId: session.id,
-            hasTelemetry: Boolean(session.inputTelemetry),
-            telemetryPath: session.inputTelemetryPath,
-            existingAutoZoomGeneratedAtMs: session.autoZoomGeneratedAtMs,
-          });
-        } else {
-          const result = await window.electronAPI.getCurrentVideoPath();
-          if (result.success && result.path) {
-            const videoUrl = toFileUrl(result.path);
-            setRecordingSession(null);
-            setCameraVideoPath(null);
-            setVideoPath(videoUrl);
-            setCustomCursorTelemetry(null);
-            setCursorProcessing(false);
-            console.info("[auto-zoom][editor] Loaded video without recording session context", {
-              path: result.path,
-            });
-          } else {
-            setError('No video to load. Please record or select a video.');
-            console.warn("[auto-zoom][editor] No video/session available to load");
-          }
+  const loadVideo = useCallback(async () => {
+    try {
+      const sessionResult = await window.electronAPI.getCurrentRecordingSession();
+      if (sessionResult.success && sessionResult.session) {
+        setError(null);
+        const session = sessionResult.session as unknown as RecordingSession;
+        const customEnabled = Boolean(session.customCursorEnabled && session.inputTelemetry);
+        if (customEnabled) {
+          setCursorProcessing(true);
         }
-      } catch (err) {
-        setError('Error loading video: ' + String(err));
-        console.error("[auto-zoom][editor] Failed while loading video/session", err);
-      } finally {
-        setCursorProcessing(false);
+        setRecordingSession(session);
+        setVideoPath(toFileUrl(session.screenVideoPath));
+        setCameraVideoPath(session.cameraVideoPath ? toFileUrl(session.cameraVideoPath) : null);
+        if (customEnabled) {
+          await new Promise((resolve) => setTimeout(resolve, 200));
+          setCustomCursorTelemetry(buildSmoothedCursorTelemetry(session.inputTelemetry));
+          setCursorProcessing(false);
+        } else {
+          setCustomCursorTelemetry(null);
+          setCursorProcessing(false);
+        }
+        setLoadingMessage("Loading editor...");
+        console.info("[auto-zoom][editor] Loaded recording session", {
+          sessionId: session.id,
+          hasTelemetry: Boolean(session.inputTelemetry),
+          telemetryPath: session.inputTelemetryPath,
+          existingAutoZoomGeneratedAtMs: session.autoZoomGeneratedAtMs,
+        });
         setLoading(false);
+        return;
       }
+
+      const result = await window.electronAPI.getCurrentVideoPath();
+      if (result.success && result.path) {
+        const videoUrl = toFileUrl(result.path);
+        setError(null);
+        setRecordingSession(null);
+        setCameraVideoPath(null);
+        setVideoPath(videoUrl);
+        setCustomCursorTelemetry(null);
+        setCursorProcessing(false);
+        setLoadingMessage("Loading editor...");
+        console.info("[auto-zoom][editor] Loaded video without recording session context", {
+          path: result.path,
+        });
+        setLoading(false);
+        return;
+      }
+
+      const finalizationState = await window.electronAPI.getRecordingFinalizationState();
+      if (finalizationState.success && finalizationState.status === "finalizing") {
+        setError(null);
+        setLoadingMessage(finalizationState.message || "Finalizing recording...");
+        setLoading(true);
+        return;
+      }
+      if (finalizationState.success && finalizationState.status === "error") {
+        setLoading(false);
+        setError(finalizationState.message || "Recording finalization failed.");
+        return;
+      }
+
+      setError("No video to load. Please record or select a video.");
+      console.warn("[auto-zoom][editor] No video/session available to load");
+      setLoading(false);
+    } catch (err) {
+      setError("Error loading video: " + String(err));
+      setLoading(false);
+      console.error("[auto-zoom][editor] Failed while loading video/session", err);
+    } finally {
+      setCursorProcessing(false);
     }
-    loadVideo();
   }, []);
+
+  useEffect(() => {
+    loadVideo().catch(() => {});
+  }, [loadVideo]);
+
+  useEffect(() => {
+    const unsubscribe = window.electronAPI.onRecordingSessionReady(() => {
+      loadVideo().catch(() => {});
+    });
+    const pollId = window.setInterval(() => {
+      if (!loading || videoPath) {
+        return;
+      }
+      loadVideo().catch(() => {});
+    }, 300);
+    return () => {
+      unsubscribe();
+      window.clearInterval(pollId);
+    };
+  }, [loadVideo, loading, videoPath]);
 
   const applyAutoGeneratedZooms = useCallback((telemetry: InputTelemetryFileV1, showFeedback: boolean, intensity: AutoZoomIntensity) => {
     if (duration <= 0) {
@@ -862,7 +902,12 @@ export default function VideoEditor() {
         }
       } else {
         // MP4 Export
-        const mp4Settings = settings.mp4Config ?? { frameRate: mp4FrameRate, resolution: mp4Resolution };
+        const mp4Settings = settings.mp4Config
+          ? {
+              ...settings.mp4Config,
+              frameRate: settings.mp4Config.frameRate === 60 ? 60 : 30,
+            }
+          : { frameRate: mp4FrameRate, resolution: mp4Resolution };
         let exportWidth: number;
         let exportHeight: number;
         const targetHeight = mp4Settings.resolution;
@@ -876,13 +921,13 @@ export default function VideoEditor() {
         const totalPixels = exportWidth * exportHeight;
         let bitrate = 20_000_000;
         if (totalPixels <= 1280 * 720) {
-          bitrate = mp4Settings.frameRate === 120 ? 18_000_000 : mp4Settings.frameRate === 60 ? 12_000_000 : 8_000_000;
+          bitrate = mp4Settings.frameRate === 60 ? 12_000_000 : 8_000_000;
         } else if (totalPixels <= 1920 * 1080) {
-          bitrate = mp4Settings.frameRate === 120 ? 35_000_000 : mp4Settings.frameRate === 60 ? 20_000_000 : 12_000_000;
+          bitrate = mp4Settings.frameRate === 60 ? 20_000_000 : 12_000_000;
         } else if (totalPixels <= 2560 * 1440) {
-          bitrate = mp4Settings.frameRate === 120 ? 55_000_000 : mp4Settings.frameRate === 60 ? 32_000_000 : 20_000_000;
+          bitrate = mp4Settings.frameRate === 60 ? 32_000_000 : 20_000_000;
         } else {
-          bitrate = mp4Settings.frameRate === 120 ? 90_000_000 : mp4Settings.frameRate === 60 ? 50_000_000 : 28_000_000;
+          bitrate = mp4Settings.frameRate === 60 ? 50_000_000 : 28_000_000;
         }
 
         const exporter = new VideoExporter({
@@ -1065,7 +1110,7 @@ export default function VideoEditor() {
           </div>
         </div>
         <div className="absolute bottom-8 left-1/2 -translate-x-1/2 text-xs text-slate-400">
-          {loading ? "Loading editor..." : "Processing cursor telemetry..."}
+          {loading ? loadingMessage : "Processing cursor telemetry..."}
         </div>
       </div>
     );

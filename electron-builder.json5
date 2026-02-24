@@ -25,6 +25,10 @@
     {
       "from": "public/wallpapers",
       "to": "assets/wallpapers"
+    },
+    {
+      "from": "icons/icons/win/icon.ico",
+      "to": "icon.ico"
     }
   ],
 

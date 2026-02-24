@@ -26,6 +26,7 @@ interface Window {
   electronAPI: {
     getSources: (opts: Electron.SourcesOptions) => Promise<ProcessedDesktopSource[]>
     switchToEditor: () => Promise<void>
+    openEditorNow: () => Promise<{ success: boolean }>
     startNewRecordingSession: (payload?: {
       replaceCurrentTake?: boolean
       session?: {
@@ -50,7 +51,7 @@ interface Window {
         cameraPreviewEnabled: boolean
         selectedCameraDeviceId: string
         recordingPreset: 'performance' | 'balanced' | 'quality'
-        recordingFps: 60 | 120
+        recordingFps: 30 | 60
         customCursorEnabled: boolean
         useLegacyRecorder: boolean
         recordingEncoder: 'h264_libx264' | 'h264_nvenc' | 'hevc_nvenc' | 'h264_amf'
@@ -72,7 +73,7 @@ interface Window {
       cameraPreviewEnabled: boolean
       selectedCameraDeviceId: string
       recordingPreset: 'performance' | 'balanced' | 'quality'
-      recordingFps: 60 | 120
+      recordingFps: 30 | 60
       customCursorEnabled: boolean
       useLegacyRecorder: boolean
       recordingEncoder: 'h264_libx264' | 'h264_nvenc' | 'hevc_nvenc' | 'h264_amf'
@@ -87,7 +88,7 @@ interface Window {
       cameraPreviewEnabled?: boolean
       selectedCameraDeviceId?: string
       recordingPreset?: 'performance' | 'balanced' | 'quality'
-      recordingFps?: 60 | 120
+      recordingFps?: 30 | 60
       customCursorEnabled?: boolean
       useLegacyRecorder?: boolean
       recordingEncoder?: 'h264_libx264' | 'h264_nvenc' | 'hevc_nvenc' | 'h264_amf'
@@ -117,7 +118,7 @@ interface Window {
       cameraPreviewEnabled: boolean
       selectedCameraDeviceId: string
       recordingPreset: 'performance' | 'balanced' | 'quality'
-      recordingFps: 60 | 120
+      recordingFps: 30 | 60
       customCursorEnabled: boolean
       useLegacyRecorder: boolean
       recordingEncoder: 'h264_libx264' | 'h264_nvenc' | 'hevc_nvenc' | 'h264_amf'
@@ -164,6 +165,20 @@ interface Window {
     getCurrentVideoPath: () => Promise<{ success: boolean; path?: string }>
     setCurrentRecordingSession: (session: Record<string, unknown>) => Promise<{ success: boolean }>
     getCurrentRecordingSession: () => Promise<{ success: boolean; session?: Record<string, unknown> }>
+    setRecordingFinalizationState: (partial: {
+      status?: 'idle' | 'finalizing' | 'ready' | 'error'
+      sessionId?: string
+      message?: string
+      progressPhase?: 'stopping-native' | 'storing-assets' | 'muxing-audio' | 'done'
+    }) => Promise<{ success: boolean; state?: Record<string, unknown> }>
+    getRecordingFinalizationState: () => Promise<{
+      success: boolean
+      status: 'idle' | 'finalizing' | 'ready' | 'error'
+      sessionId?: string
+      message?: string
+      progressPhase?: 'stopping-native' | 'storing-assets' | 'muxing-audio' | 'done'
+    }>
+    onRecordingSessionReady: (callback: (payload: { session?: Record<string, unknown> }) => void) => () => void
     clearCurrentVideoPath: () => Promise<{ success: boolean }>
     getPlatform: () => Promise<string>
     hudOverlayHide: () => void;

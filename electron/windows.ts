@@ -1,4 +1,4 @@
-import { BrowserWindow, screen } from 'electron'
+import { BrowserWindow, screen, app } from 'electron'
 import { ipcMain } from 'electron'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -8,6 +8,17 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const APP_ROOT = path.join(__dirname, '..')
 const VITE_DEV_SERVER_URL = process.env['VITE_DEV_SERVER_URL']
 const RENDERER_DIST = path.join(APP_ROOT, 'dist')
+
+// Resolves the .ico path for Windows window icons.
+// In dev: reads straight from /icons (source of truth).
+// In production: reads from extraResources (bundled by electron-builder).
+// To change the icon just replace icons/icons/win/icon.ico.
+function getWindowIcon(): string | undefined {
+  if (process.platform !== 'win32') return undefined
+  return app.isPackaged
+    ? path.join(process.resourcesPath, 'icon.ico')
+    : path.join(APP_ROOT, 'icons', 'icons', 'win', 'icon.ico')
+}
 
 let hudOverlayWindow: BrowserWindow | null = null;
 let cameraPreviewWindow: BrowserWindow | null = null;
@@ -108,6 +119,7 @@ export function createEditorWindow(): BrowserWindow {
       titleBarStyle: 'hiddenInset',
       trafficLightPosition: { x: 12, y: 12 },
     }),
+    icon: getWindowIcon(),
     transparent: false,
     resizable: true,
     alwaysOnTop: false,

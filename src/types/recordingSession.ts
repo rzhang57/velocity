@@ -13,7 +13,7 @@ export interface RecordingSession {
   cameraStartOffsetMs?: number;
   screenDurationMs: number;
   cameraDurationMs?: number;
-  requestedCaptureFps?: 60 | 120;
+  requestedCaptureFps?: 30 | 60;
   actualCaptureFps?: number;
   requestedCaptureWidth?: number;
   requestedCaptureHeight?: number;

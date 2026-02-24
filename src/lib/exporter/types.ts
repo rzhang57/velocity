@@ -31,7 +31,7 @@ export type ExportQuality = 'medium' | 'good' | 'source';
 
 // GIF Export Types
 export type ExportFormat = 'mp4' | 'gif';
-export type Mp4FrameRate = 30 | 60 | 120;
+export type Mp4FrameRate = 30 | 60;
 export type Mp4ResolutionPreset = 720 | 1080 | 1440 | 2160;
 
 export type GifFrameRate = 10 | 15 | 20 | 25 | 30;
@@ -79,7 +79,6 @@ export const VALID_GIF_FRAME_RATES: readonly GifFrameRate[] = [10, 15, 20, 25, 3
 export const MP4_FRAME_RATES: { value: Mp4FrameRate; label: string }[] = [
   { value: 30, label: '30 FPS' },
   { value: 60, label: '60 FPS' },
-  { value: 120, label: '120 FPS' },
 ];
 export const MP4_RESOLUTION_PRESETS: { value: Mp4ResolutionPreset; label: string }[] = [
   { value: 720, label: '720p' },
