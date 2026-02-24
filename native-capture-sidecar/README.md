@@ -1,45 +1,36 @@
-# Native Capture Sidecar (Windows backend)
+# Native Capture Sidecar
+Native recording sidecar used by Velocity over JSON stdio IPC.
 
-This sidecar provides OS-level recording orchestration for velocity via stdio JSON IPC.
+## Platform behavior
+- Windows: Rust sidecar (`src/`) is used for native capture.
+- macOS: Swift sidecar (`macos/NativeCaptureSidecar.swift`) is built and used in production flow for macOS native recording.
 
-## Current backend
+## Capture backends
+- Windows screen capture: Windows Graphics Capture (WGC), monitor-level capture, crop/scale, cursor control.
+- Windows window capture: WGC window capture.
+- Windows encoding: FFmpeg pipeline with selectable encoders:
+  - `h264_libx264` (CPU)
+  - `h264_nvenc` (NVIDIA GPU, when available)
+  - `h264_amf` (AMD GPU, when available)
+- macOS capture: ScreenCaptureKit + AVAssetWriter (H.264 MP4) in the Swift sidecar.
 
-- Windows: implemented using FFmpeg `gdigrab`
-  - screen mode (`-i desktop` + selected monitor region)
-  - window mode (`-i title=<window title>`)
-- macOS/Linux: scaffold only (not implemented yet)
+## FFmpeg
+- Required for Windows native capture and encoder probing.
+- Also used by app-level post-processing paths (for example muxing microphone audio).
+- Bundling prep in `scripts/prepareNativeCapture.mjs` prefers `ffmpeg-static`, then falls back to PATH.
 
-## Build
-
+## Build and prep
 From repo root:
-
 ```bash
-npm run build:sidecar:win
+npm run build:sidecar
 ```
 
-This produces:
+This prepares platform binaries under:
+- `native-capture-sidecar/bin/win32/`
+- `native-capture-sidecar/bin/darwin/`
 
-- `native-capture-sidecar/bin/win32/native-capture-sidecar.exe`
-
-## FFmpeg requirement
-
-The sidecar requires `ffmpeg.exe` to be available via either:
-
-1. Bundled path:
-   - `native-capture-sidecar/bin/win32/ffmpeg.exe` (dev)
-   - `resources/native-capture/win32/ffmpeg.exe` (packaged)
-2. System PATH (`ffmpeg.exe`)
-
-Dev/build prep now tries this order automatically:
-
-1. `@ffmpeg-installer/ffmpeg` bundled npm binary
-2. `ffmpeg.exe` on PATH
-
-## Protocol commands
-
+## IPC commands
 - `init`
 - `get_encoder_options`
 - `start_capture`
 - `stop_capture`
-
-Responses are line-delimited JSON with matching `id`.
